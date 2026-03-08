@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Security Gate">
+  <rect width="64" height="64" rx="12" fill="#020617"/>
+  <path d="M32 8l18 8v12c0 13-7.7 24.6-18 29-10.3-4.4-18-16-18-29V16l18-8z" fill="#2563EB"/>
+  <path d="M20 28h24v4H20zm0 8h24v4H20z" fill="#E5E7EB"/>
+</svg>
