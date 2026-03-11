@@ -676,6 +676,23 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
     { key: 'Reports', icon: <SummarizeIcon /> }
   ];
 
+  const vehicleManufacturers = [
+    'Toyota', 'Honda', 'Nissan', 'Mazda', 'Subaru', 'Mitsubishi', 'Suzuki', 'Lexus', 'Infiniti', 'Acura',
+    'Ford', 'Chevrolet', 'GMC', 'Dodge', 'Chrysler', 'Jeep', 'Lincoln', 'Cadillac', 'Buick', 'Tesla',
+    'BMW', 'Mercedes-Benz', 'Audi', 'Volkswagen', 'Porsche', 'Opel', 'Volvo', 'Saab',
+    'Hyundai', 'Kia', 'Genesis', 'Daewoo',
+    'Peugeot', 'Citroen', 'Renault', 'Alfa Romeo', 'Fiat', 'Lamborghini', 'Ferrari', 'Maserati',
+    'Land Rover', 'Jaguar', 'Mini', 'Bentley', 'Rolls-Royce', 'Aston Martin',
+    'Mahindra', 'Tata', 'Maruti Suzuki',
+    'Chery', 'BYD', 'Geely', 'Great Wall', 'JAC', 'FAW', 'SAIC',
+    'Other'
+  ];
+
+  const vehicleColors = [
+    'White', 'Black', 'Silver', 'Grey', 'Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Brown',
+    'Beige', 'Gold', 'Burgundy', 'Navy', 'Teal', 'Pink', 'Purple', 'Other'
+  ];
+
   const formTemplates = {
     'Register Visitor': [
       { key: 'first_name', label: 'First Name', required: true },
@@ -691,6 +708,8 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
     ],
     'Vehicle Entry': [
       { key: 'vehicle_registration', label: 'Vehicle Registration', required: true },
+      { key: 'vehicle_manufacturer', label: 'Vehicle Manufacturer', type: 'manufacturer' },
+      { key: 'vehicle_color', label: 'Vehicle Color', type: 'color' },
       { key: 'driver_name', label: 'Driver Name' },
       { key: 'vehicle_type', label: 'Vehicle Type', select: ['Company', 'Service', 'Customer'] },
       { key: 'purpose', label: 'Purpose' },
@@ -909,6 +928,56 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
                           ? 'Search and select staff in selected department'
                           : 'Select department first'
                       }
+                    />
+                  )}
+                />
+              ) : field.type === 'manufacturer' ? (
+                <Autocomplete
+                  freeSolo
+                  options={vehicleManufacturers}
+                  value={formData[field.key] || ''}
+                  onChange={(_, value) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      [field.key]: value || ''
+                    }))
+                  }
+                  onInputChange={(_, value) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      [field.key]: value
+                    }))
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label={field.label}
+                      helperText="Search or type a manufacturer"
+                    />
+                  )}
+                />
+              ) : field.type === 'color' ? (
+                <Autocomplete
+                  freeSolo
+                  options={vehicleColors}
+                  value={formData[field.key] || ''}
+                  onChange={(_, value) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      [field.key]: value || ''
+                    }))
+                  }
+                  onInputChange={(_, value) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      [field.key]: value
+                    }))
+                  }
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label={field.label}
+                      helperText="Search or type a color"
                     />
                   )}
                 />
@@ -1599,6 +1668,11 @@ function AdminPage({ user, onLogout, notify }) {
       setGuards(guardData);
       setDepartments(departmentData);
       setStaffMembers(staffData);
+    } else if (user.role === 'supervisor') {
+      const guardData = await getGuards();
+      setGuards(guardData);
+      setDepartments([]);
+      setStaffMembers([]);
     } else {
       setGuards([]);
       setDepartments([]);
@@ -1921,34 +1995,94 @@ function AdminPage({ user, onLogout, notify }) {
       </Card>
     );
   } else if (adminView === 'Users') {
-    const guardOnly = guards.filter((record) => record.role === 'guard');
+    const canCreateUsers = user.role === 'admin' || user.role === 'supervisor';
+    const canManageUsers = user.role === 'admin';
+    const userRows = user.role === 'admin' ? guards : guards.filter((record) => record.role === 'guard');
     content = (
       <Card sx={{ backgroundColor: '#020617' }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 1.5 }}>Guards</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-            Read-only list. CRUD actions are disabled in this tab.
+            {user.role === 'admin'
+              ? 'Admins can create supervisors and guards.'
+              : 'Supervisors can create guards only.'}
           </Typography>
+          {canCreateUsers && (
+            <Stack direction="row" spacing={1} sx={{ mb: 1.5 }}>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                onClick={() =>
+                  setGuardDialog({
+                    open: true,
+                    mode: 'create',
+                    data: { role: user.role === 'admin' ? 'guard' : 'guard', status: 'active' }
+                  })
+                }
+              >
+                Add User
+              </Button>
+            </Stack>
+          )}
           <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
                   <TableCell>Name</TableCell>
                   <TableCell>Username</TableCell>
+                  <TableCell>Role</TableCell>
                   <TableCell>Status</TableCell>
+                  {canManageUsers && <TableCell>Actions</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {guardOnly.map((guard) => (
+                {userRows.map((guard) => (
                   <TableRow key={guard.id}>
                     <TableCell>{guard.full_name}</TableCell>
                     <TableCell>@{guard.username}</TableCell>
+                    <TableCell>{guard.role}</TableCell>
                     <TableCell>{guard.status || 'active'}</TableCell>
+                    {canManageUsers && (
+                      <TableCell>
+                        <IconButton
+                          size="small"
+                          onClick={() =>
+                            setGuardDialog({
+                              open: true,
+                              mode: 'edit',
+                              data: {
+                                id: guard.id,
+                                full_name: guard.full_name,
+                                username: guard.username,
+                                password: '',
+                                role: guard.role,
+                                status: guard.status || 'active'
+                              }
+                            })
+                          }
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          color="error"
+                          size="small"
+                          onClick={() => {
+                            if (!window.confirm('Delete this user?')) return;
+                            deleteGuard(guard.id)
+                              .then(loadData)
+                              .then(() => notify('User deleted.', 'success'))
+                              .catch((error) => notify(error.message, 'error'));
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
-                {!guardOnly.length && (
+                {!userRows.length && (
                   <TableRow>
-                    <TableCell colSpan={3}>No guards found.</TableCell>
+                    <TableCell colSpan={canManageUsers ? 5 : 4}>No users found.</TableCell>
                   </TableRow>
                 )}
               </TableBody>
@@ -2230,7 +2364,18 @@ function AdminPage({ user, onLogout, notify }) {
             <TextField label="Full Name" value={guardDialog.data.full_name || ''} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, full_name: event.target.value } }))} />
             <TextField label="Username" value={guardDialog.data.username || ''} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, username: event.target.value } }))} />
             <TextField label="Password" type="password" value={guardDialog.data.password || ''} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, password: event.target.value } }))} />
-            <FormControl fullWidth><InputLabel>Role</InputLabel><Select label="Role" value={guardDialog.data.role || 'guard'} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, role: event.target.value } }))}><MenuItem value="guard">Guard</MenuItem><MenuItem value="supervisor">Supervisor</MenuItem></Select></FormControl>
+            <FormControl fullWidth>
+              <InputLabel>Role</InputLabel>
+              <Select
+                label="Role"
+                value={guardDialog.data.role || 'guard'}
+                onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, role: event.target.value } }))}
+                disabled={user.role !== 'admin'}
+              >
+                <MenuItem value="guard">Guard</MenuItem>
+                {user.role === 'admin' && <MenuItem value="supervisor">Supervisor</MenuItem>}
+              </Select>
+            </FormControl>
             <FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={guardDialog.data.status || 'active'} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, status: event.target.value } }))}><MenuItem value="active">Active</MenuItem><MenuItem value="disabled">Disabled</MenuItem></Select></FormControl>
           </Stack>
         </DialogContent>

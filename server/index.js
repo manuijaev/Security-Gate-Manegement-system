@@ -490,7 +490,7 @@ app.post('/api/visitors', authRequired, async (req, res) => {
 });
 
 app.post('/api/vehicle-entries', authRequired, async (req, res) => {
-  const { vehicle_registration, driver_name, vehicle_type, purpose, destination, time_in } = req.body;
+  const { vehicle_registration, vehicle_manufacturer, vehicle_color, driver_name, vehicle_type, purpose, destination, time_in } = req.body;
   if (!vehicle_registration) {
     return res.status(400).json({ error: 'vehicle_registration is required' });
   }
@@ -498,11 +498,13 @@ app.post('/api/vehicle-entries', authRequired, async (req, res) => {
   try {
     const result = await pool.query(
       `INSERT INTO vehicle_entries
-       (vehicle_registration, driver_name, vehicle_type, purpose, destination, time_in)
-       VALUES ($1,$2,$3,$4,$5,COALESCE($6::timestamptz, NOW()))
+       (vehicle_registration, vehicle_manufacturer, vehicle_color, driver_name, vehicle_type, purpose, destination, time_in)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,COALESCE($8::timestamptz, NOW()))
        RETURNING *`,
       [
         vehicle_registration,
+        vehicle_manufacturer || null,
+        vehicle_color || null,
         driver_name || null,
         vehicle_type || null,
         purpose || null,
@@ -652,10 +654,12 @@ app.delete('/api/admin/movements/:entity/:id', authRequired, adminRequired, asyn
   }
 });
 
-app.get('/api/admin/guards', authRequired, adminRequired, async (_, res) => {
+app.get('/api/admin/guards', authRequired, supervisorOrAdminRequired, async (req, res) => {
   try {
+    const allowedRoles = req.user.role === 'supervisor' ? ['guard'] : ['guard', 'supervisor'];
     const result = await pool.query(
-      "SELECT id, full_name, username, role, status, created_at FROM users WHERE role IN ('guard', 'supervisor') ORDER BY id DESC"
+      'SELECT id, full_name, username, role, status, created_at FROM users WHERE role = ANY($1) ORDER BY id DESC',
+      [allowedRoles]
     );
     res.json(result.rows);
   } catch (error) {
@@ -663,12 +667,12 @@ app.get('/api/admin/guards', authRequired, adminRequired, async (_, res) => {
   }
 });
 
-app.post('/api/admin/guards', authRequired, adminRequired, async (req, res) => {
+app.post('/api/admin/guards', authRequired, supervisorOrAdminRequired, async (req, res) => {
   const { full_name, username, password, role, status } = req.body;
   if (!full_name || !username || !password) {
     return res.status(400).json({ error: 'full_name, username, and password are required' });
   }
-  const safeRole = role === 'supervisor' ? 'supervisor' : 'guard';
+  const safeRole = req.user.role === 'supervisor' ? 'guard' : role === 'supervisor' ? 'supervisor' : 'guard';
   const safeStatus = status === 'disabled' ? 'disabled' : 'active';
 
   try {

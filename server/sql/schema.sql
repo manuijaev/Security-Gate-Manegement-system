@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS visitors (
 CREATE TABLE IF NOT EXISTS vehicle_entries (
   id BIGSERIAL PRIMARY KEY,
   vehicle_registration TEXT NOT NULL,
+  vehicle_manufacturer TEXT,
+  vehicle_color TEXT,
   driver_name TEXT,
   vehicle_type TEXT,
   purpose TEXT,
@@ -86,3 +88,7 @@ CREATE TABLE IF NOT EXISTS repossessed_vehicles (
   notes TEXT,
   recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Add new columns to vehicle_entries if they don't exist
+ALTER TABLE vehicle_entries ADD COLUMN IF NOT EXISTS vehicle_manufacturer TEXT;
+ALTER TABLE vehicle_entries ADD COLUMN IF NOT EXISTS vehicle_color TEXT;
