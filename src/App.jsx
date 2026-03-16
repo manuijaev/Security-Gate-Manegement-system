@@ -1,3 +1,4 @@
+
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -1741,7 +1742,7 @@ function AdminPage({ user, onLogout, notify }) {
       result.push({
         id: 'visitor_registered',
         level: 'success',
-        message: `New visitor registered: ${latestVisitorIn.subject} registered to see ${latestVisitorIn.destination}.`
+        message: `New visitor registered: ${latestVisitorIn.subject} registered to see ${latestVisitorIn.personToSee}.`
       });
     }
     if (latestVisitorOut) {
