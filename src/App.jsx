@@ -73,6 +73,7 @@ import CancelOutlinedIcon from '@mui/icons-material/CancelOutlined';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import ShieldIcon from '@mui/icons-material/Shield';
+import WorkIcon from '@mui/icons-material/Work';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -1649,6 +1650,8 @@ function AdminPage({ user, onLogout, notify }) {
     { key: 'Yard Exit', icon: <ExitToAppIcon /> },
     { key: 'Repossessed Vehicles', icon: <InventoryIcon /> },
     { key: 'Reports', icon: <SummarizeIcon /> },
+    { key: 'Departments', icon: <WorkIcon /> },
+    { key: 'Staff', icon: <AssignmentIndIcon /> },
     { key: 'Users', icon: <GroupIcon /> },
     { key: 'Audit Logs', icon: <FactCheckIcon /> },
     { key: 'Settings', icon: <SettingsIcon /> }
@@ -2083,6 +2086,152 @@ function AdminPage({ user, onLogout, notify }) {
                 {!userRows.length && (
                   <TableRow>
                     <TableCell colSpan={canManageUsers ? 5 : 4}>No users found.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+    );
+  } else if (adminView === 'Departments') {
+    content = (
+      <Card sx={{ backgroundColor: '#020617' }}>
+        <CardContent>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Typography variant="h6">Departments / Divisions</Typography>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setDepartmentDialog({ open: true, mode: 'create', data: {} })}>
+              Add Department
+            </Button>
+          </Stack>
+          <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>ID</TableCell>
+                  <TableCell>Name</TableCell>
+                  <TableCell>Created At</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {departments.map((dept) => (
+                  <TableRow key={dept.id}>
+                    <TableCell>{dept.id}</TableCell>
+                    <TableCell>{dept.name}</TableCell>
+                    <TableCell>{formatEatTimestamp(dept.created_at)}</TableCell>
+                    <TableCell align="right">
+                      <IconButton
+                        size="small"
+                        onClick={() =>
+                          setDepartmentDialog({
+                            open: true,
+                            mode: 'edit',
+                            data: { id: dept.id, name: dept.name }
+                          })
+                        }
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        color="error"
+                        size="small"
+                        onClick={() => {
+                          if (!window.confirm('Delete this department? Staff members in this department will also be deleted.')) return;
+                          deleteDepartment(dept.id)
+                            .then(loadData)
+                            .then(() => notify('Department deleted.', 'success'))
+                            .catch((error) => notify(error.message, 'error'));
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!departments.length && (
+                  <TableRow>
+                    <TableCell colSpan={4}>No departments found. Click "Add Department" to create one.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </CardContent>
+      </Card>
+    );
+  } else if (adminView === 'Staff') {
+    content = (
+      <Card sx={{ backgroundColor: '#020617' }}>
+        <CardContent>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+            <Typography variant="h6">Staff Members</Typography>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setStaffDialog({ open: true, mode: 'create', data: {} })} disabled={!departments.length}>
+              Add Staff Member
+            </Button>
+          </Stack>
+          {!departments.length && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Please create at least one department before adding staff members.
+            </Alert>
+          )}
+          <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>ID</TableCell>
+                  <TableCell>Full Name</TableCell>
+                  <TableCell>Department</TableCell>
+                  <TableCell>Title</TableCell>
+                  <TableCell>Created At</TableCell>
+                  <TableCell align="right">Actions</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {staffMembers.map((staff) => (
+                  <TableRow key={staff.id}>
+                    <TableCell>{staff.id}</TableCell>
+                    <TableCell>{staff.full_name}</TableCell>
+                    <TableCell>{staff.department_name}</TableCell>
+                    <TableCell>{staff.title || '-'}</TableCell>
+                    <TableCell>{formatEatTimestamp(staff.created_at)}</TableCell>
+                    <TableCell align="right">
+                      <IconButton
+                        size="small"
+                        onClick={() =>
+                          setStaffDialog({
+                            open: true,
+                            mode: 'edit',
+                            data: {
+                              id: staff.id,
+                              full_name: staff.full_name,
+                              department_id: staff.department_id,
+                              title: staff.title || ''
+                            }
+                          })
+                        }
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                      <IconButton
+                        color="error"
+                        size="small"
+                        onClick={() => {
+                          if (!window.confirm('Delete this staff member?')) return;
+                          deleteStaff(staff.id)
+                            .then(loadData)
+                            .then(() => notify('Staff member deleted.', 'success'))
+                            .catch((error) => notify(error.message, 'error'));
+                        }}
+                      >
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {!staffMembers.length && (
+                  <TableRow>
+                    <TableCell colSpan={6}>No staff members found. Click "Add Staff Member" to create one.</TableCell>
                   </TableRow>
                 )}
               </TableBody>
