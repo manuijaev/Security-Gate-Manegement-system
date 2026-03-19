@@ -233,15 +233,62 @@ function exportRowsAsPdf(rows, fileName, title, includeDocuments = false) {
   const columns = getReportColumns(includeDocuments);
   const pdfRows = rows.map((row) => mapReportRow(row, includeDocuments));
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-  doc.setFontSize(14);
-  doc.text(title, 40, 32);
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const marginX = 40;
+
+  // Header styled to match dark dashboard
+  doc.setFillColor(15, 23, 42);
+  doc.rect(0, 0, pageWidth, 60, 'F');
+
+  doc.setTextColor(226, 232, 240);
+  doc.setFontSize(16);
+  doc.text(title, marginX, 30);
+
+  doc.setFontSize(9);
+  doc.setTextColor(148, 163, 184);
+  const generatedAt = new Date().toLocaleString('en-KE', {
+    timeZone: 'Africa/Nairobi'
+  });
+  doc.text(`Generated: ${generatedAt} (EAT)`, marginX, 46);
+  doc.text(`Rows: ${rows.length}`, pageWidth - marginX - 80, 46);
+
   autoTable(doc, {
-    startY: 44,
+    startY: 70,
     head: [columns.map((column) => column.label)],
     body: pdfRows.map((record) => columns.map((column) => String(record[column.key] ?? '-'))),
-    styles: { fontSize: 8, cellPadding: 4 },
-    headStyles: { fillColor: [37, 99, 235] }
+    styles: {
+      fontSize: 8,
+      cellPadding: 4,
+      textColor: [226, 232, 240],
+      fillColor: [15, 23, 42]
+    },
+    headStyles: {
+      fillColor: [37, 99, 235],
+      textColor: [249, 250, 251],
+      fontStyle: 'bold'
+    },
+    alternateRowStyles: {
+      fillColor: [15, 23, 42]
+    },
+    theme: 'grid',
+    didDrawPage: (data) => {
+      const footerY = doc.internal.pageSize.getHeight() - 20;
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `Security Gate Management · ${title}`,
+        marginX,
+        footerY
+      );
+      doc.text(
+        `Page ${doc.internal.getNumberOfPages()}`,
+        pageWidth - marginX - 40,
+        footerY
+      );
+    }
   });
+
   doc.save(fileName);
   return true;
 }
@@ -673,9 +720,7 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
     { key: 'Vehicle Exit', icon: <SwapHorizIcon /> },
     { key: 'Deliveries', icon: <LocalShippingIcon /> },
     { key: 'Yard Exit', icon: <ExitToAppIcon /> },
-    { key: 'Repossessed Vehicles', icon: <InventoryIcon /> },
-    { key: 'Search', icon: <SearchIcon /> },
-    { key: 'Reports', icon: <SummarizeIcon /> }
+    { key: 'Repossessed Vehicles', icon: <InventoryIcon /> }
   ];
 
   const vehicleManufacturers = [
@@ -704,9 +749,7 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
       { key: 'department', label: 'Department', type: 'department', required: true },
       { key: 'person_to_see', label: 'Person To See', type: 'staff_person', required: true },
       { key: 'vehicle_registration', label: 'Vehicle Registration (Optional)' },
-      { key: 'purpose_of_visit', label: 'Purpose of Visit', multiline: true },
-      { key: 'visitor_photo', label: 'Visitor Photo URL (Optional)' },
-      { key: 'id_photo', label: 'ID Photo URL (Optional)' }
+      { key: 'purpose_of_visit', label: 'Purpose of Visit', multiline: true }
     ],
     'Vehicle Entry': [
       { key: 'vehicle_registration', label: 'Vehicle Registration', required: true },
@@ -804,6 +847,13 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
       }
 
       notify(`${activeView} saved successfully.`, 'success');
+      // Reset form fields so guard can capture the next record immediately
+      const reset = {};
+      template.forEach((field) => {
+        reset[field.key] = '';
+      });
+      setFormData(reset);
+
       await refreshGuardData();
     } catch (error) {
       notify(error.message, 'error');
@@ -825,36 +875,140 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
   const currentVehicles = movements.filter((row) => row.type === 'Vehicle Entry' && row.status === 'Inside');
 
   const drawer = (
-    <Box sx={{ p: 1.5 }}>
-      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ p: 1, mb: 1.5 }}>
-        <Avatar sx={{ bgcolor: 'info.main', width: 34, height: 34 }}>
+    <Box
+      sx={{
+        p: 1.5,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        background:
+          'radial-gradient(circle at 0 0, rgba(37, 99, 235, 0.45), transparent 55%)'
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={1.5}
+        alignItems="center"
+        sx={{
+          p: 1,
+          mb: 1.5,
+          borderRadius: 2.5,
+          backgroundColor: 'rgba(15, 23, 42, 0.9)',
+          border: '1px solid rgba(148, 163, 184, 0.4)'
+        }}
+      >
+        <Avatar
+          sx={{
+            bgcolor: 'info.main',
+            width: 34,
+            height: 34,
+            boxShadow: '0 6px 14px rgba(37, 99, 235, 0.65)'
+          }}
+        >
           <AssignmentIndIcon fontSize="small" />
         </Avatar>
-        <Box>
-          <Typography fontWeight={700}>Guard Workspace</Typography>
+        <Box sx={{ flex: 1 }}>
+          <Typography fontWeight={800} fontSize={13}>
+            Guard Workspace
+          </Typography>
           <Typography variant="caption" color="text.secondary">
             {user.fullName}
           </Typography>
         </Box>
+        <Chip
+          size="small"
+          label="On shift"
+          color="success"
+          variant="outlined"
+          sx={{ borderRadius: 999, fontSize: 10, px: 0.5 }}
+        />
       </Stack>
-      <List>
-        {guardViews.map((view) => (
-          <ListItemButton
-            key={view.key}
-            selected={activeView === view.key}
-            onClick={() => {
-              setActiveView(view.key);
-              setMobileOpen(false);
-            }}
-            sx={{ borderRadius: 2, mb: 0.4 }}
-          >
-            <ListItemIcon sx={{ minWidth: 34, color: 'text.primary' }}>{view.icon}</ListItemIcon>
-            <ListItemText primary={view.key} />
-          </ListItemButton>
-        ))}
-      </List>
-      <Divider sx={{ my: 1.5 }} />
-      <Button fullWidth variant="outlined" color="error" startIcon={<LogoutIcon />} onClick={onLogout}>
+
+      <Typography
+        variant="caption"
+        sx={{
+          textTransform: 'uppercase',
+          letterSpacing: 2,
+          color: 'text.secondary',
+          px: 1,
+          mb: 0.5
+        }}
+      >
+        Views
+      </Typography>
+
+      <Box sx={{ flex: 1, overflowY: 'auto' }}>
+        <List dense>
+          {guardViews.map((view) => (
+            <ListItemButton
+              key={view.key}
+              selected={activeView === view.key}
+              onClick={() => {
+                setActiveView(view.key);
+                setMobileOpen(false);
+              }}
+              sx={{
+                borderRadius: 2.5,
+                mb: 0.4,
+                px: 1.2,
+                py: 0.7,
+                transition:
+                  'background-color 140ms ease-out, transform 140ms cubic-bezier(.34,1.56,.64,1), box-shadow 140ms',
+                '&.Mui-selected': {
+                  background:
+                    'linear-gradient(90deg, rgba(59, 130, 246, 0.9), rgba(34, 197, 94, 0.8))',
+                  boxShadow: '0 10px 26px rgba(15, 23, 42, 0.9)'
+                },
+                '&.Mui-selected:hover': {
+                  background:
+                    'linear-gradient(90deg, rgba(59, 130, 246, 1), rgba(34, 197, 94, 1))'
+                },
+                '&:hover': {
+                  transform: 'translateX(3px)',
+                  backgroundColor: 'rgba(15, 23, 42, 0.9)'
+                }
+              }}
+            >
+              <ListItemIcon
+                sx={{
+                  minWidth: 34,
+                  color: 'inherit',
+                  '& svg': { fontSize: 20 }
+                }}
+              >
+                {view.icon}
+              </ListItemIcon>
+              <ListItemText
+                primaryTypographyProps={{
+                  fontSize: 13,
+                  fontWeight: activeView === view.key ? 800 : 600
+                }}
+                primary={view.key}
+              />
+            </ListItemButton>
+          ))}
+        </List>
+      </Box>
+
+      <Divider sx={{ my: 1.2 }} />
+      <Button
+        fullWidth
+        variant="outlined"
+        color="error"
+        startIcon={<LogoutIcon />}
+        onClick={onLogout}
+        sx={{
+          borderRadius: 999,
+          textTransform: 'none',
+          fontWeight: 700,
+          py: 0.7,
+          borderColor: 'rgba(248, 113, 113, 0.7)',
+          '&:hover': {
+            borderColor: 'rgba(248, 113, 113, 1)',
+            backgroundColor: 'rgba(127, 29, 29, 0.6)'
+          }
+        }}
+      >
         Logout
       </Button>
     </Box>
@@ -868,294 +1022,623 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
   ];
 
   const renderForm = () => (
-    <Card sx={{ backgroundColor: '#020617' }}>
-      <CardContent>
-        <Typography variant="h6" sx={{ mb: 2 }}>
-          {activeView}
-        </Typography>
-        <Grid container spacing={2}>
-          {template.map((field) => (
-            <Grid key={field.key} size={{ xs: 12, md: 6 }}>
-              {field.type === 'department' ? (
-                <FormControl fullWidth required={field.required}>
-                  <InputLabel>{field.label}</InputLabel>
-                  <Select
-                    label={field.label}
-                    value={formData[field.key] || ''}
-                    onChange={(event) => {
-                      const nextDepartment = event.target.value;
-                      setFormData((prev) => ({
-                        ...prev,
-                        [field.key]: nextDepartment,
-                        person_to_see: ''
-                      }));
-                    }}
-                  >
-                    {departments.map((department) => (
-                      <MenuItem key={department.id} value={department.name}>
-                        {department.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              ) : field.type === 'staff_person' ? (
-                <Autocomplete
-                  freeSolo
-                  options={staffOptions}
-                  getOptionLabel={(option) =>
-                    typeof option === 'string'
-                      ? option
-                      : `${option.full_name}${option.title ? ` (${option.title})` : ''}`
-                  }
-                  value={formData[field.key] || ''}
-                  onChange={(_, value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      [field.key]: typeof value === 'string' ? value : value?.full_name || ''
-                    }))
-                  }
-                  onInputChange={(_, value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      [field.key]: value
-                    }))
-                  }
-                  renderInput={(params) => (
+    <Grid
+      container
+      spacing={2.5}
+      sx={{
+        alignItems: 'stretch',
+        background:
+          'radial-gradient(circle at 0 0, rgba(30, 64, 175, 0.55), transparent 55%), radial-gradient(circle at 100% 100%, rgba(22, 163, 74, 0.4), transparent 50%)',
+        borderRadius: 3,
+        p: 1.5
+      }}
+    >
+      <Grid size={{ xs: 12, md: 7 }}>
+        <Card
+          sx={{
+            background:
+              'linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.98))',
+            borderRadius: 3,
+            border: '1px solid rgba(148, 163, 184, 0.7)',
+            boxShadow: '0 18px 40px rgba(15, 23, 42, 0.9)',
+            backdropFilter: 'blur(18px)'
+          }}
+        >
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              {activeView}
+            </Typography>
+            <Grid container spacing={2}>
+              {template.map((field) => (
+                <Grid key={field.key} size={{ xs: 12, md: 6 }}>
+                  {field.type === 'department' ? (
+                    <FormControl fullWidth required={field.required}>
+                      <InputLabel>{field.label}</InputLabel>
+                      <Select
+                        label={field.label}
+                        value={formData[field.key] || ''}
+                        onChange={(event) => {
+                          const nextDepartment = event.target.value;
+                          setFormData((prev) => ({
+                            ...prev,
+                            [field.key]: nextDepartment,
+                            person_to_see: ''
+                          }));
+                        }}
+                      >
+                        {departments.map((department) => (
+                          <MenuItem key={department.id} value={department.name}>
+                            {department.name}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  ) : field.type === 'staff_person' ? (
+                    <Autocomplete
+                      freeSolo
+                      options={staffOptions}
+                      getOptionLabel={(option) =>
+                        typeof option === 'string'
+                          ? option
+                          : `${option.full_name}${option.title ? ` (${option.title})` : ''}`
+                      }
+                      value={formData[field.key] || ''}
+                      onChange={(_, value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          [field.key]: typeof value === 'string' ? value : value?.full_name || ''
+                        }))
+                      }
+                      onInputChange={(_, value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          [field.key]: value
+                        }))
+                      }
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          required={field.required}
+                          label={field.label}
+                          helperText={
+                            formData.department
+                              ? 'Search and select staff in selected department'
+                              : 'Select department first'
+                          }
+                        />
+                      )}
+                    />
+                  ) : field.type === 'manufacturer' ? (
+                    <Autocomplete
+                      freeSolo
+                      options={vehicleManufacturers}
+                      value={formData[field.key] || ''}
+                      onChange={(_, value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          [field.key]: value || ''
+                        }))
+                      }
+                      onInputChange={(_, value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          [field.key]: value
+                        }))
+                      }
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label={field.label}
+                          helperText="Search or type a manufacturer"
+                        />
+                      )}
+                    />
+                  ) : field.type === 'color' ? (
+                    <Autocomplete
+                      freeSolo
+                      options={vehicleColors}
+                      value={formData[field.key] || ''}
+                      onChange={(_, value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          [field.key]: value || ''
+                        }))
+                      }
+                      onInputChange={(_, value) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          [field.key]: value
+                        }))
+                      }
+                      renderInput={(params) => (
+                        <TextField
+                          {...params}
+                          label={field.label}
+                          helperText="Search or type a color"
+                        />
+                      )}
+                    />
+                  ) : field.select ? (
+                    <FormControl fullWidth required={field.required}>
+                      <InputLabel>{field.label}</InputLabel>
+                      <Select
+                        label={field.label}
+                        value={formData[field.key] || ''}
+                        onChange={(event) =>
+                          setFormData((prev) => ({ ...prev, [field.key]: event.target.value }))
+                        }
+                      >
+                        {field.select.map((option) => (
+                          <MenuItem key={option} value={option}>
+                            {option}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
+                  ) : (
                     <TextField
-                      {...params}
+                      fullWidth
                       required={field.required}
                       label={field.label}
-                      helperText={
-                        formData.department
-                          ? 'Search and select staff in selected department'
-                          : 'Select department first'
+                      value={formData[field.key] || ''}
+                      multiline={Boolean(field.multiline)}
+                      rows={field.multiline ? 3 : undefined}
+                      onChange={(event) =>
+                        setFormData((prev) => ({ ...prev, [field.key]: event.target.value }))
                       }
                     />
                   )}
-                />
-              ) : field.type === 'manufacturer' ? (
-                <Autocomplete
-                  freeSolo
-                  options={vehicleManufacturers}
-                  value={formData[field.key] || ''}
-                  onChange={(_, value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      [field.key]: value || ''
-                    }))
-                  }
-                  onInputChange={(_, value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      [field.key]: value
-                    }))
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label={field.label}
-                      helperText="Search or type a manufacturer"
-                    />
-                  )}
-                />
-              ) : field.type === 'color' ? (
-                <Autocomplete
-                  freeSolo
-                  options={vehicleColors}
-                  value={formData[field.key] || ''}
-                  onChange={(_, value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      [field.key]: value || ''
-                    }))
-                  }
-                  onInputChange={(_, value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      [field.key]: value
-                    }))
-                  }
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label={field.label}
-                      helperText="Search or type a color"
-                    />
-                  )}
-                />
-              ) : field.select ? (
-                <FormControl fullWidth required={field.required}>
-                  <InputLabel>{field.label}</InputLabel>
-                  <Select
-                    label={field.label}
-                    value={formData[field.key] || ''}
-                    onChange={(event) =>
-                      setFormData((prev) => ({ ...prev, [field.key]: event.target.value }))
-                    }
-                  >
-                    {field.select.map((option) => (
-                      <MenuItem key={option} value={option}>
-                        {option}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              ) : (
-                <TextField
-                  fullWidth
-                  required={field.required}
-                  label={field.label}
-                  value={formData[field.key] || ''}
-                  multiline={Boolean(field.multiline)}
-                  rows={field.multiline ? 3 : undefined}
-                  onChange={(event) =>
-                    setFormData((prev) => ({ ...prev, [field.key]: event.target.value }))
-                  }
-                />
-              )}
-            </Grid>
-          ))}
-        </Grid>
-        <Stack direction="row" spacing={1.5} sx={{ mt: 2 }}>
-          <Button variant="contained" color="success" onClick={submitGuardForm} startIcon={<FactCheckIcon />}>
-            Save
-          </Button>
-          <Button
-            variant="outlined"
-            sx={outlinedLightButtonSx}
-            onClick={() => {
-              const reset = {};
-              template.forEach((field) => {
-                reset[field.key] = '';
-              });
-              setFormData(reset);
-            }}
-          >
-            Cancel
-          </Button>
-        </Stack>
-      </CardContent>
-    </Card>
-  );
-
-  const renderDashboard = () => (
-    <Grid container spacing={2}>
-      <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
-        <Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="body2" color="text.secondary">Visitors Today</Typography><Typography variant="h4">{summary.visitorsToday}</Typography></CardContent></Card>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
-        <Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="body2" color="text.secondary">Vehicles Logged Today</Typography><Typography variant="h4">{summary.vehiclesLogged}</Typography></CardContent></Card>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, lg: 4 }}>
-        <Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="body2" color="text.secondary">Deliveries Today</Typography><Typography variant="h4">{summary.deliveries}</Typography></CardContent></Card>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
-        <Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="body2" color="text.secondary">Vehicles Removed</Typography><Typography variant="h4">{summary.yardExits}</Typography></CardContent></Card>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, lg: 6 }}>
-        <Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="body2" color="text.secondary">Repossessed Vehicles</Typography><Typography variant="h4">{movements.filter((row) => row.type === 'Repossessed Vehicle').length}</Typography></CardContent></Card>
-      </Grid>
-
-      <Grid size={{ xs: 12, lg: 5 }}>
-        <Card sx={{ backgroundColor: '#020617' }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 1.5 }}>
-              Quick Actions
-            </Typography>
-            <Grid container spacing={1.2}>
-              {quickActions.map((action) => (
-                <Grid key={action.label} size={{ xs: 12 }}>
-                  <Button
-                    fullWidth
-                    size="large"
-                    variant="outlined"
-                    startIcon={action.icon}
-                    sx={{
-                      py: 1.2,
-                      justifyContent: 'flex-start',
-                      textAlign: 'left',
-                      whiteSpace: 'normal',
-                      lineHeight: 1.25,
-                      color: '#E5E7EB',
-                      borderColor: 'rgba(229, 231, 235, 0.35)',
-                      '& .MuiButton-startIcon': { color: '#E5E7EB' },
-                      '&:hover': { borderColor: '#E5E7EB' }
-                    }}
-                    onClick={() => setActiveView(action.target)}
-                  >
-                    {action.label}
-                  </Button>
                 </Grid>
               ))}
             </Grid>
-          </CardContent>
-        </Card>
-      </Grid>
-
-      <Grid size={{ xs: 12, lg: 7 }}>
-        <Card sx={{ backgroundColor: '#020617' }}>
-          <CardContent>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Activity Feed
-            </Typography>
-            <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Clock In (EAT)</TableCell>
-                    <TableCell>Clock Out (EAT)</TableCell>
-                    <TableCell>Activity</TableCell>
-                    <TableCell>Status</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {movements.slice(0, 8).map((row) => (
-                    <TableRow key={row.id}>
-                      <TableCell>{formatEatTimestamp(row.timeIn)}</TableCell>
-                      <TableCell>{formatEatTimestamp(row.timeOut)}</TableCell>
-                      <TableCell>{`${row.type}: ${row.subject}`}</TableCell>
-                      <TableCell>
-                        <StatusChip status={row.status} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </CardContent>
-        </Card>
-      </Grid>
-
-      <Grid size={{ xs: 12 }}>
-        <Card sx={{ backgroundColor: '#020617' }}>
-          <CardContent>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-              <NotificationsIcon color="warning" />
-              <Typography variant="h6">Notifications</Typography>
+            <Stack direction="row" spacing={1.5} sx={{ mt: 2 }}>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={submitGuardForm}
+                startIcon={<FactCheckIcon />}
+              >
+                Save
+              </Button>
+              <Button
+                variant="outlined"
+                sx={outlinedLightButtonSx}
+                onClick={() => {
+                  const reset = {};
+                  template.forEach((field) => {
+                    reset[field.key] = '';
+                  });
+                  setFormData(reset);
+                }}
+              >
+                Cancel
+              </Button>
             </Stack>
-            {!notifications.length && (
-              <Typography variant="body2" color="text.secondary">
-                No active alerts.
-              </Typography>
+          </CardContent>
+        </Card>
+      </Grid>
+
+      <Grid size={{ xs: 12, md: 5 }}>
+        <Card
+          sx={{
+            background:
+              'linear-gradient(160deg, rgba(15, 23, 42, 0.98), rgba(8, 47, 73, 0.96))',
+            borderRadius: 3,
+            border: '1px solid rgba(56, 189, 248, 0.5)',
+            boxShadow: '0 18px 40px rgba(15, 23, 42, 0.95)',
+            backdropFilter: 'blur(18px)'
+          }}
+        >
+          <CardContent>
+            {activeView === 'Register Visitor' && (
+              <>
+                <Typography variant="subtitle1" sx={{ mb: 1.5 }} fontWeight={800}>
+                  Visitors inside today
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Use this panel to quickly see who is already in the compound while you register a
+                  new visitor.
+                </Typography>
+                <TableContainer component={Paper} sx={{ backgroundColor: '#020617', maxHeight: 260, overflowX: 'auto' }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Clock In</TableCell>
+                        <TableCell>Subject</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {currentVisitors.slice(0, 6).map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>{formatEatTimestamp(row.timeIn)}</TableCell>
+                          <TableCell>{row.subject}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </>
             )}
-            <Stack spacing={1}>
-              {notifications.map((item) => (
-                <Alert key={item.id} severity={item.level === 'warning' ? 'warning' : 'info'}>
-                  {item.message}
-                </Alert>
-              ))}
-            </Stack>
+
+            {activeView === 'Vehicle Entry' && (
+              <>
+                <Typography variant="subtitle1" sx={{ mb: 1.5 }} fontWeight={800}>
+                  Vehicles currently inside
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Check for duplicates before recording a new entry.
+                </Typography>
+                <TableContainer component={Paper} sx={{ backgroundColor: '#020617', maxHeight: 260, overflowX: 'auto' }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Clock In</TableCell>
+                        <TableCell>Reg</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {currentVehicles.slice(0, 6).map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell>{formatEatTimestamp(row.timeIn)}</TableCell>
+                          <TableCell>{row.subject}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </>
+            )}
+
+            {activeView === 'Deliveries' && (
+              <>
+                <Typography variant="subtitle1" sx={{ mb: 1.5 }} fontWeight={800}>
+                  Delivery tips
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Make sure the company, driver name, and vehicle registration are captured clearly.
+                  You can match this later with exit records and reports.
+                </Typography>
+              </>
+            )}
+
+            {activeView === 'Yard Exit' && (
+              <>
+                <Typography variant="subtitle1" sx={{ mb: 1.5 }} fontWeight={800}>
+                  Remember approvals
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Always confirm supervisor approval and reasons before marking a vehicle as removed
+                  from the yard.
+                </Typography>
+              </>
+            )}
+
+            {activeView === 'Repossessed Vehicles' && (
+              <>
+                <Typography variant="subtitle1" sx={{ mb: 1.5 }} fontWeight={800}>
+                  Condition notes
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Capture visible damage and the recovery company accurately so repossessed records
+                  line up with insurance or legal documentation.
+                </Typography>
+              </>
+            )}
           </CardContent>
         </Card>
       </Grid>
     </Grid>
   );
 
+  const renderDashboard = () => (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: { xs: 'column', md: 'row' },
+          alignItems: { xs: 'flex-start', md: 'center' },
+          justifyContent: 'space-between',
+          gap: 1.5
+        }}
+      >
+        <Box>
+          <Typography variant="h5" fontWeight={900}>
+            Good {dayjs().hour() < 12 ? 'morning' : dayjs().hour() < 18 ? 'afternoon' : 'evening'},
+            <Box component="span" sx={{ color: 'info.main', ml: 0.5 }}>
+              {user.fullName}
+            </Box>
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Here is your live gate situation. Use the chips and cards to jump into actions.
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={1}>
+          <Chip label="Guard dashboard" color="info" variant="outlined" size="small" />
+          <Chip
+            label={`${currentVisitors.length} inside · ${currentVehicles.length} vehicles`}
+            size="small"
+            sx={{ borderColor: 'rgba(148, 163, 184, 0.6)', color: 'text.secondary' }}
+          />
+        </Stack>
+      </Box>
+
+      <Grid container spacing={1.5}>
+        {[
+          {
+            label: 'Visitors Today',
+            value: summary.visitorsToday,
+            helper: 'Checked in via this gate'
+          },
+          {
+            label: 'Vehicles Logged',
+            value: summary.vehiclesLogged,
+            helper: 'Currently or recently inside'
+          },
+          {
+            label: 'Deliveries',
+            value: summary.deliveries,
+            helper: 'Registered drop–offs'
+          },
+          {
+            label: 'Yard Exits',
+            value: summary.yardExits,
+            helper: 'Vehicles removed'
+          },
+          {
+            label: 'Repossessed',
+            value: movements.filter((row) => row.type === 'Repossessed Vehicle').length,
+            helper: 'Flagged units'
+          }
+        ].map((card) => (
+          <Grid key={card.label} size={{ xs: 12, sm: 6, md: 4 }}>
+            <Card
+              sx={{
+                background: 'radial-gradient(circle at 0 0, #0B1120, #020617)',
+                borderRadius: 3,
+                border: '1px solid rgba(148, 163, 184, 0.25)',
+                boxShadow: '0 10px 35px rgba(15, 23, 42, 0.65)',
+                transform: 'translateY(0px)',
+                transition: 'transform 180ms ease-out, box-shadow 180ms ease-out, border-color 180ms',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 18px 50px rgba(15, 23, 42, 0.9)',
+                  borderColor: 'rgba(129, 140, 248, 0.7)'
+                }
+              }}
+            >
+              <CardContent>
+                <Typography variant="caption" color="text.secondary">
+                  {card.label}
+                </Typography>
+                <Typography variant="h4" sx={{ mt: 0.5 }}>
+                  {card.value}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {card.helper}
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
+      </Grid>
+
+      {notifications.length > 0 && (
+        <Card
+          sx={{
+            background:
+              'linear-gradient(90deg, rgba(248, 113, 113, 0.12), rgba(251, 191, 36, 0.06))',
+            border: '1px solid rgba(248, 113, 113, 0.6)',
+            borderRadius: 3,
+            boxShadow: '0 10px 30px rgba(127, 29, 29, 0.45)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            px: 2.5,
+            py: 1.5
+          }}
+        >
+          <Avatar sx={{ bgcolor: 'error.main', width: 40, height: 40 }}>
+            <ReportProblemIcon />
+          </Avatar>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+              {notifications.length} active alert
+              {notifications.length > 1 ? 's' : ''} for overdue visitors or vehicles
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Open the exit screen to resolve them once confirmed.
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={() => setActiveView('Visitor Exit')}
+            sx={{
+              borderRadius: 999,
+              px: 2.5,
+              textTransform: 'none',
+              fontWeight: 800
+            }}
+          >
+            Review now
+          </Button>
+        </Card>
+      )}
+
+      <Grid container spacing={2}>
+        <Grid size={{ xs: 12, md: 5 }}>
+        <Card
+          sx={{
+            background:
+              'radial-gradient(circle at 0 0, rgba(30, 64, 175, 0.9), rgba(15, 23, 42, 0.98))',
+            borderRadius: 3,
+            border: '1px solid rgba(59, 130, 246, 0.8)',
+            boxShadow: '0 18px 40px rgba(15, 23, 42, 0.9)',
+            overflow: 'hidden',
+            position: 'relative'
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              opacity: 0.12,
+              background:
+                'radial-gradient(circle at 20% 0%, rgba(59, 130, 246, 1), transparent 55%), radial-gradient(circle at 120% 120%, rgba(16, 185, 129, 1), transparent 55%)'
+            }}
+          />
+            <CardContent>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Avatar
+                  sx={{
+                    bgcolor: 'info.main',
+                    width: 30,
+                    height: 30,
+                    boxShadow: '0 8px 18px rgba(37, 99, 235, 0.8)'
+                  }}
+                >
+                  <AddIcon fontSize="small" />
+                </Avatar>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="subtitle1" fontWeight={800}>
+                    Quick Actions
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Tap a card to open the right form.
+                  </Typography>
+                </Box>
+                <Chip
+                  label="Fast lane"
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                  sx={{ borderRadius: 999 }}
+                />
+              </Stack>
+
+              <Stack sx={{ mt: 2 }} spacing={1.2}>
+                {quickActions.map((action, index) => (
+                  <Button
+                    key={action.label}
+                    fullWidth
+                    variant="outlined"
+                    startIcon={action.icon}
+                    onClick={() => setActiveView(action.target)}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      textAlign: 'left',
+                      whiteSpace: 'normal',
+                      lineHeight: 1.25,
+                      borderRadius: 2,
+                      borderColor: 'rgba(148, 163, 184, 0.6)',
+                      color: '#E5E7EB',
+                      px: 1.4,
+                      py: 1,
+                      transform: 'translateX(0) scale(1)',
+                      transition:
+                        'transform 200ms cubic-bezier(.34,1.56,.64,1), box-shadow 200ms, border-color 200ms, background-color 200ms',
+                      boxShadow: '0 0 0 rgba(15, 23, 42, 0)',
+                      position: 'relative',
+                      overflow: 'hidden',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        inset: 0,
+                        background:
+                          'linear-gradient(90deg, rgba(59, 130, 246, 0.25), transparent 55%)',
+                        opacity: 0,
+                        transform: 'translateX(-40%)',
+                        transition: 'opacity 220ms ease-out, transform 220ms ease-out'
+                      },
+                      '& .MuiButton-startIcon': { color: 'inherit' },
+                      '&:hover::before': {
+                        opacity: 1,
+                        transform: 'translateX(40%)'
+                      },
+                      '&:hover': {
+                        borderColor: 'rgba(129, 140, 248, 0.9)',
+                        transform: 'translateX(4px) scale(1.01)',
+                        boxShadow: '0 10px 24px rgba(15, 23, 42, 0.85)',
+                        backgroundColor: 'rgba(15, 23, 42, 0.9)'
+                      }
+                    }}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid size={{ xs: 12, md: 7 }}>
+          <Card sx={{ backgroundColor: '#020617', borderRadius: 3 }}>
+            <CardContent>
+              <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+                <Typography variant="subtitle1" fontWeight={800}>
+                  Activity Feed
+                </Typography>
+                <Chip
+                  label="Live"
+                  size="small"
+                  color="success"
+                  variant="outlined"
+                  icon={<CheckCircleOutlineIcon fontSize="small" />}
+                />
+              </Stack>
+              <TableContainer
+                component={Paper}
+                sx={{
+                  backgroundColor: '#0B1120',
+                  maxHeight: 320,
+                  overflowX: 'auto'
+                }}
+              >
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Clock In (EAT)</TableCell>
+                      <TableCell>Clock Out (EAT)</TableCell>
+                      <TableCell>Activity</TableCell>
+                      <TableCell>Status</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {movements.slice(0, 10).map((row) => (
+                      <TableRow
+                        key={row.id}
+                        hover
+                        sx={{
+                          transition: 'background-color 120ms ease-out, transform 120ms ease-out',
+                          '&:hover': {
+                            transform: 'translateY(-1px)',
+                            backgroundColor: 'rgba(30, 64, 175, 0.25)'
+                          }
+                        }}
+                      >
+                        <TableCell>{formatEatTimestamp(row.timeIn)}</TableCell>
+                        <TableCell>{formatEatTimestamp(row.timeOut)}</TableCell>
+                        <TableCell>{`${row.type}: ${row.subject}`}</TableCell>
+                        <TableCell>
+                          <StatusChip status={row.status} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+    </Box>
+  );
+
   const renderExitTable = (rows, label) => (
     <Card sx={{ backgroundColor: '#020617' }}>
       <CardContent>
         <Typography variant="h6" sx={{ mb: 1.5 }}>{label}</Typography>
-        <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+        <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -1223,7 +1706,7 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
             </Select>
           </FormControl>
         </Stack>
-        <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+        <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}>
           <Table size="small">
             <TableHead>
               <TableRow>
@@ -1322,8 +1805,6 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
   if (activeView === 'Dashboard') content = renderDashboard();
   if (activeView === 'Visitor Exit') content = renderExitTable(currentVisitors, 'Current Visitors');
   if (activeView === 'Vehicle Exit') content = renderExitTable(currentVehicles, 'Current Vehicles');
-  if (activeView === 'Search') content = renderSearch();
-  if (activeView === 'Reports') content = renderReports();
   if (formTemplates[activeView]) content = renderForm();
 
   return (
@@ -1367,7 +1848,7 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
         </Drawer>
       </Box>
 
-      <Box component="main" sx={{ flexGrow: 1, p: 2, mt: 8 }}>
+      <Box component="main" sx={{ flexGrow: 1, p: { xs: 1.2, sm: 2 }, mt: 8 }}>
         {isLoading ? (
           <Box sx={{ display: 'grid', placeItems: 'center', minHeight: 320 }}>
             <CircularProgress color="info" />
@@ -1906,30 +2387,149 @@ function AdminPage({ user, onLogout, notify }) {
   };
 
   const drawer = (
-    <Box sx={{ p: 1.5 }}>
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5, px: 1 }}>
-        <Avatar sx={{ bgcolor: 'info.main', width: 34, height: 34 }}><DashboardIcon fontSize="small" /></Avatar>
-        <Box>
-          <Typography fontWeight={700}>Admin Control Center</Typography>
-          <Typography variant="caption" color="text.secondary">{user.fullName}</Typography>
+    <Box
+      sx={{
+        p: 1.5,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        background:
+          'radial-gradient(circle at 0 0, rgba(37, 99, 235, 0.5), transparent 55%)'
+      }}
+    >
+      <Stack
+        direction="row"
+        spacing={1.2}
+        alignItems="center"
+        sx={{
+          mb: 1.5,
+          px: 1,
+          py: 1,
+          borderRadius: 2.5,
+          backgroundColor: 'rgba(15, 23, 42, 0.96)',
+          border: '1px solid rgba(148, 163, 184, 0.5)'
+        }}
+      >
+        <Avatar
+          sx={{
+            bgcolor: 'info.main',
+            width: 34,
+            height: 34,
+            boxShadow: '0 6px 16px rgba(37, 99, 235, 0.75)'
+          }}
+        >
+          <DashboardIcon fontSize="small" />
+        </Avatar>
+        <Box sx={{ flex: 1 }}>
+          <Typography fontWeight={800} fontSize={13}>
+            {user.role === 'admin' ? 'Admin Control Center' : 'Supervisor Console'}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">
+            {user.fullName}
+          </Typography>
         </Box>
+        <Chip
+          size="small"
+          label={user.role === 'admin' ? 'Admin' : 'Supervisor'}
+          color="success"
+          variant="outlined"
+          sx={{ borderRadius: 999, fontSize: 10 }}
+        />
       </Stack>
-      <List>
-        {sidebarItems.map((item) => (
-          <ListItemButton key={item.key} selected={adminView === item.key} sx={{ borderRadius: 2, mb: 0.4 }} onClick={() => { setAdminView(item.key); setDrawerOpen(false); }}>
-            <ListItemIcon sx={{ minWidth: 34, color: 'text.primary' }}>{item.icon}</ListItemIcon>
-            <ListItemText primary={item.key} />
-          </ListItemButton>
-        ))}
-      </List>
+
+      <Typography
+        variant="caption"
+        sx={{
+          textTransform: 'uppercase',
+          letterSpacing: 2,
+          color: 'text.secondary',
+          px: 1,
+          mb: 0.5
+        }}
+      >
+        Navigation
+      </Typography>
+
+      <Box sx={{ flex: 1, overflowY: 'auto' }}>
+        <List dense>
+          {sidebarItems.map((item) => (
+            <ListItemButton
+              key={item.key}
+              selected={adminView === item.key}
+              sx={{
+                borderRadius: 2.5,
+                mb: 0.4,
+                px: 1.2,
+                py: 0.7,
+                transition:
+                  'background-color 140ms ease-out, transform 140ms cubic-bezier(.34,1.56,.64,1), box-shadow 140ms',
+                '&.Mui-selected': {
+                  background:
+                    'linear-gradient(90deg, rgba(59, 130, 246, 0.95), rgba(45, 212, 191, 0.9))',
+                  boxShadow: '0 10px 26px rgba(15, 23, 42, 0.9)'
+                },
+                '&.Mui-selected:hover': {
+                  background:
+                    'linear-gradient(90deg, rgba(59, 130, 246, 1), rgba(45, 212, 191, 1))'
+                },
+                '&:hover': {
+                  transform: 'translateX(3px)',
+                  backgroundColor: 'rgba(15, 23, 42, 0.9)'
+                }
+              }}
+              onClick={() => {
+                setAdminView(item.key);
+                setDrawerOpen(false);
+              }}
+            >
+              <ListItemIcon
+                sx={{
+                  minWidth: 34,
+                  color: 'inherit',
+                  '& svg': { fontSize: 20 }
+                }}
+              >
+                {item.icon}
+              </ListItemIcon>
+              <ListItemText
+                primaryTypographyProps={{
+                  fontSize: 13,
+                  fontWeight: adminView === item.key ? 800 : 600
+                }}
+                primary={item.key}
+              />
+            </ListItemButton>
+          ))}
+        </List>
+      </Box>
+
       <Divider sx={{ my: 1.5 }} />
-      <Button fullWidth variant="outlined" color="error" startIcon={<LogoutIcon />} onClick={onLogout}>Logout</Button>
+      <Button
+        fullWidth
+        variant="outlined"
+        color="error"
+        startIcon={<LogoutIcon />}
+        onClick={onLogout}
+        sx={{
+          borderRadius: 999,
+          textTransform: 'none',
+          fontWeight: 700,
+          py: 0.7,
+          borderColor: 'rgba(248, 113, 113, 0.7)',
+          '&:hover': {
+            borderColor: 'rgba(248, 113, 113, 1)',
+            backgroundColor: 'rgba(127, 29, 29, 0.6)'
+          }
+        }}
+      >
+        Logout
+      </Button>
     </Box>
   );
 
   const showDocumentColumns = adminView === 'Reports';
   const logsTable = (
-    <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+    <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}>
       <Table size="small">
         <TableHead>
           <TableRow>
@@ -1970,11 +2570,164 @@ function AdminPage({ user, onLogout, notify }) {
   let content = null;
   if (adminView === 'Dashboard') {
     content = (
-      <Grid container spacing={2}>
-        {cards.map((card) => (<Grid key={card.label} size={{ xs: 12, sm: 6, lg: 2 }}><Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="body2" color="text.secondary">{card.label}</Typography><Typography variant="h4" fontWeight={700}>{card.value}</Typography></CardContent></Card></Grid>))}
-        <Grid size={{ xs: 12, lg: 6 }}><Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="h6" sx={{ mb: 1.5 }}>Operations Overview</Typography><Stack spacing={1.2}>{Object.entries(groupedCounts).map(([label, value]) => (<Box key={label}><Stack direction="row" justifyContent="space-between"><Typography variant="body2">{label}</Typography><Typography variant="body2">{value}</Typography></Stack><Box sx={{ height: 8, borderRadius: 1, bgcolor: '#1F2937', overflow: 'hidden' }}><Box sx={{ height: '100%', width: `${Math.min(100, value * 10)}%`, bgcolor: 'info.main' }} /></Box></Box>))}</Stack></CardContent></Card></Grid>
-        <Grid size={{ xs: 12, lg: 6 }}><Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="h6" sx={{ mb: 1.5 }}>Live Activity Feed</Typography><TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}><Table size="small"><TableHead><TableRow><TableCell>Time</TableCell><TableCell>Event</TableCell></TableRow></TableHead><TableBody>{movements.slice(0, 8).map((row) => (<TableRow key={row.id}><TableCell>{formatEatTimestamp(row.timeIn)}</TableCell><TableCell>{`${row.type} - ${row.subject}`}</TableCell></TableRow>))}</TableBody></Table></TableContainer></CardContent></Card></Grid>
-      </Grid>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: { xs: 'column', md: 'row' },
+            alignItems: { xs: 'flex-start', md: 'center' },
+            justifyContent: 'space-between',
+            gap: 1.5
+          }}
+        >
+          <Box>
+            <Typography variant="h5" fontWeight={900}>
+              {user.role === 'admin' ? 'Admin overview' : 'Supervisor overview'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+              High-level view of visitors, vehicles, and deliveries for {selectedDate}.
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1}>
+            <Chip
+              label={user.role === 'admin' ? 'Admin mode' : 'Supervisor mode'}
+              color="info"
+              variant="outlined"
+              size="small"
+            />
+            <Chip
+              label={`${movements.length} movements`}
+              size="small"
+              sx={{ borderColor: 'rgba(148, 163, 184, 0.6)', color: 'text.secondary' }}
+            />
+          </Stack>
+        </Box>
+
+        <Grid container spacing={1.5}>
+          {cards.map((card) => (
+            <Grid key={card.label} size={{ xs: 12, sm: 6, lg: 4 }}>
+              <Card
+                sx={{
+                  background: 'radial-gradient(circle at 0 0, #0B1120, #020617)',
+                  borderRadius: 3,
+                  border: '1px solid rgba(148, 163, 184, 0.25)',
+                  boxShadow: '0 10px 35px rgba(15, 23, 42, 0.65)',
+                  transform: 'translateY(0px)',
+                  transition:
+                    'transform 180ms ease-out, box-shadow 180ms ease-out, border-color 180ms',
+                  '&:hover': {
+                    transform: 'translateY(-4px)',
+                    boxShadow: '0 18px 50px rgba(15, 23, 42, 0.9)',
+                    borderColor: 'rgba(129, 140, 248, 0.7)'
+                  }
+                }}
+              >
+                <CardContent>
+                  <Typography variant="caption" color="text.secondary">
+                    {card.label}
+                  </Typography>
+                  <Typography variant="h4" fontWeight={700} sx={{ mt: 0.5 }}>
+                    {card.value}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
+        </Grid>
+
+        <Grid container spacing={2}>
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Card
+              sx={{
+                background:
+                  'linear-gradient(145deg, rgba(15, 23, 42, 0.96), rgba(2, 6, 23, 0.98))',
+                borderRadius: 3,
+                border: '1px solid rgba(148, 163, 184, 0.7)',
+                boxShadow: '0 18px 40px rgba(15, 23, 42, 0.9)',
+                backdropFilter: 'blur(18px)'
+              }}
+            >
+              <CardContent>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>
+                  Operations Overview
+                </Typography>
+                <Stack spacing={1.2}>
+                  {Object.entries(groupedCounts).map(([label, value]) => (
+                    <Box key={label}>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="body2">{label}</Typography>
+                        <Typography variant="body2">{value}</Typography>
+                      </Stack>
+                      <Box
+                        sx={{
+                          height: 8,
+                          borderRadius: 999,
+                          bgcolor: '#1F2937',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            height: '100%',
+                            width: `${Math.min(100, value * 10)}%`,
+                            background:
+                              'linear-gradient(90deg, rgba(59, 130, 246, 1), rgba(34, 197, 94, 1))'
+                          }}
+                        />
+                      </Box>
+                    </Box>
+                  ))}
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Card
+              sx={{
+                backgroundColor: '#020617',
+                borderRadius: 3,
+                border: '1px solid rgba(30, 64, 175, 0.6)'
+              }}
+            >
+              <CardContent>
+                <Typography variant="h6" sx={{ mb: 1.5 }}>
+                  Live Activity Feed
+                </Typography>
+                <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Time</TableCell>
+                        <TableCell>Event</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {movements.slice(0, 10).map((row) => (
+                        <TableRow
+                          key={row.id}
+                          hover
+                          sx={{
+                            transition:
+                              'background-color 120ms ease-out, transform 120ms ease-out',
+                            '&:hover': {
+                              transform: 'translateY(-1px)',
+                              backgroundColor: 'rgba(30, 64, 175, 0.25)'
+                            }
+                          }}
+                        >
+                          <TableCell>{formatEatTimestamp(row.timeIn)}</TableCell>
+                          <TableCell>{`${row.type} - ${row.subject}`}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
     );
   } else if (['Visitors', 'Vehicles', 'Deliveries', 'Yard Exit', 'Repossessed Vehicles'].includes(adminView)) {
     content = (
@@ -2028,7 +2781,7 @@ function AdminPage({ user, onLogout, notify }) {
               </Button>
             </Stack>
           )}
-          <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+          <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -2105,7 +2858,7 @@ function AdminPage({ user, onLogout, notify }) {
               Add Department
             </Button>
           </Stack>
-          <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+          <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -2176,7 +2929,7 @@ function AdminPage({ user, onLogout, notify }) {
               Please create at least one department before adding staff members.
             </Alert>
           )}
-          <TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}>
+          <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}>
             <Table size="small">
               <TableHead>
                 <TableRow>
@@ -2284,7 +3037,7 @@ function AdminPage({ user, onLogout, notify }) {
       </Card>
     );
   } else if (adminView === 'Audit Logs') {
-    content = (<Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="h6" sx={{ mb: 1.5 }}>Audit Logs</Typography><TableContainer component={Paper} sx={{ backgroundColor: '#111827' }}><Table size="small"><TableHead><TableRow><TableCell>Time</TableCell><TableCell>User</TableCell><TableCell>Action</TableCell></TableRow></TableHead><TableBody>{movements.slice(0, 20).map((row) => (<TableRow key={`audit-${row.id}`}><TableCell>{formatEatTimestamp(row.timeIn)}</TableCell><TableCell>{row.type === 'Visitor' ? 'Guard' : 'System'}</TableCell><TableCell>{`${row.type} record ${row.id} captured`}</TableCell></TableRow>))}</TableBody></Table></TableContainer></CardContent></Card>);
+    content = (<Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="h6" sx={{ mb: 1.5 }}>Audit Logs</Typography><TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto' }}><Table size="small"><TableHead><TableRow><TableCell>Time</TableCell><TableCell>User</TableCell><TableCell>Action</TableCell></TableRow></TableHead><TableBody>{movements.slice(0, 20).map((row) => (<TableRow key={`audit-${row.id}`}><TableCell>{formatEatTimestamp(row.timeIn)}</TableCell><TableCell>{row.type === 'Visitor' ? 'Guard' : 'System'}</TableCell><TableCell>{`${row.type} record ${row.id} captured`}</TableCell></TableRow>))}</TableBody></Table></TableContainer></CardContent></Card>);
   } else if (adminView === 'Settings') {
     content = (<Card sx={{ backgroundColor: '#020617' }}><CardContent><Typography variant="h6" sx={{ mb: 1.5 }}>System Settings</Typography><Grid container spacing={2}><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Company Name" value={settingsState.companyName} onChange={(event) => setSettingsState((prev) => ({ ...prev, companyName: event.target.value }))} /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Vehicle Categories" value={settingsState.vehicleCategories} onChange={(event) => setSettingsState((prev) => ({ ...prev, vehicleCategories: event.target.value }))} /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Notification Rules" value={settingsState.notificationRules} onChange={(event) => setSettingsState((prev) => ({ ...prev, notificationRules: event.target.value }))} /></Grid><Grid size={{ xs: 12, md: 6 }}><TextField fullWidth label="Security Policies" value={settingsState.securityPolicy} onChange={(event) => setSettingsState((prev) => ({ ...prev, securityPolicy: event.target.value }))} /></Grid></Grid><Button sx={{ mt: 2 }} variant="contained" onClick={() => notify('Settings saved locally.', 'success')}>Save Settings</Button></CardContent></Card>);
   }
@@ -2311,7 +3064,7 @@ function AdminPage({ user, onLogout, notify }) {
         <Drawer variant="permanent" open sx={{ display: { xs: 'none', md: 'block' }, '& .MuiDrawer-paper': { width: guardDrawerWidth, backgroundColor: '#020617' } }}>{drawer}</Drawer>
       </Box>
 
-      <Box component="main" sx={{ flexGrow: 1, mt: 8, p: 2 }}>{content}</Box>
+      <Box component="main" sx={{ flexGrow: 1, mt: 8, p: { xs: 1.2, sm: 2 } }}>{content}</Box>
 
       <Menu anchorEl={profileAnchor} open={Boolean(profileAnchor)} onClose={() => setProfileAnchor(null)}>
         <MenuItem disabled>{user.fullName}</MenuItem>
@@ -2507,35 +3260,170 @@ function AdminPage({ user, onLogout, notify }) {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={guardDialog.open} onClose={() => setGuardDialog({ open: false, mode: 'create', data: {} })} fullWidth maxWidth="sm">
-        <DialogTitle>{guardDialog.mode === 'create' ? 'Add User' : 'Edit User'}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Full Name" value={guardDialog.data.full_name || ''} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, full_name: event.target.value } }))} />
-            <TextField label="Username" value={guardDialog.data.username || ''} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, username: event.target.value } }))} />
-            <TextField label="Password" type="password" value={guardDialog.data.password || ''} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, password: event.target.value } }))} />
-            <FormControl fullWidth>
-              <InputLabel>Role</InputLabel>
-              <Select
-                label="Role"
-                value={guardDialog.data.role || 'guard'}
-                onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, role: event.target.value } }))}
-                disabled={user.role !== 'admin'}
-              >
-                <MenuItem value="guard">Guard</MenuItem>
-                {user.role === 'admin' && <MenuItem value="supervisor">Supervisor</MenuItem>}
-              </Select>
-            </FormControl>
-            <FormControl fullWidth><InputLabel>Status</InputLabel><Select label="Status" value={guardDialog.data.status || 'active'} onChange={(event) => setGuardDialog((prev) => ({ ...prev, data: { ...prev.data, status: event.target.value } }))}><MenuItem value="active">Active</MenuItem><MenuItem value="disabled">Disabled</MenuItem></Select></FormControl>
+      <Dialog
+        open={guardDialog.open}
+        onClose={() => setGuardDialog({ open: false, mode: 'create', data: {} })}
+        fullWidth
+        maxWidth="sm"
+      >
+        <DialogTitle>
+          {guardDialog.mode === 'create' ? 'Add User' : 'Edit User'}
+        </DialogTitle>
+        <DialogContent
+          sx={{
+            mt: 1,
+            background:
+              'radial-gradient(circle at 0 0, rgba(30, 64, 175, 0.5), rgba(15, 23, 42, 0.98))'
+          }}
+        >
+          <Stack spacing={2.2}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <TextField
+                label="Full Name"
+                fullWidth
+                value={guardDialog.data.full_name || ''}
+                onChange={(event) =>
+                  setGuardDialog((prev) => ({
+                    ...prev,
+                    data: { ...prev.data, full_name: event.target.value }
+                  }))
+                }
+              />
+              <TextField
+                label="Username"
+                fullWidth
+                value={guardDialog.data.username || ''}
+                onChange={(event) =>
+                  setGuardDialog((prev) => ({
+                    ...prev,
+                    data: { ...prev.data, username: event.target.value }
+                  }))
+                }
+              />
+            </Stack>
+            <TextField
+              label="Password"
+              type="password"
+              value={guardDialog.data.password || ''}
+              onChange={(event) =>
+                setGuardDialog((prev) => ({
+                  ...prev,
+                  data: { ...prev.data, password: event.target.value }
+                }))
+              }
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+              <FormControl fullWidth>
+                <InputLabel>Role</InputLabel>
+                <Select
+                  label="Role"
+                  value={guardDialog.data.role || 'guard'}
+                  onChange={(event) =>
+                    setGuardDialog((prev) => ({
+                      ...prev,
+                      data: { ...prev.data, role: event.target.value }
+                    }))
+                  }
+                  disabled={user.role !== 'admin'}
+                >
+                  <MenuItem value="guard">Guard</MenuItem>
+                  {user.role === 'admin' && (
+                    <MenuItem value="supervisor">Supervisor</MenuItem>
+                  )}
+                </Select>
+              </FormControl>
+              <FormControl fullWidth>
+                <InputLabel>Status</InputLabel>
+                <Select
+                  label="Status"
+                  value={guardDialog.data.status || 'active'}
+                  onChange={(event) =>
+                    setGuardDialog((prev) => ({
+                      ...prev,
+                      data: { ...prev.data, status: event.target.value }
+                    }))
+                  }
+                >
+                  <MenuItem value="active">Active</MenuItem>
+                  <MenuItem value="disabled">Disabled</MenuItem>
+                </Select>
+              </FormControl>
+            </Stack>
           </Stack>
         </DialogContent>
-        <DialogActions><Button onClick={() => setGuardDialog({ open: false, mode: 'create', data: {} })}>Cancel</Button><Button variant="contained" onClick={() => upsertGuard().catch((error) => notify(error.message, 'error'))}>Save</Button></DialogActions>
+        <DialogActions>
+          <Button
+            onClick={() => setGuardDialog({ open: false, mode: 'create', data: {} })}
+            sx={outlinedLightButtonSx}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => upsertGuard().catch((error) => notify(error.message, 'error'))}
+          >
+            Save
+          </Button>
+        </DialogActions>
       </Dialog>
 
-      <Dialog open={departmentDialog.open} onClose={() => setDepartmentDialog({ open: false, mode: 'create', data: {} })} fullWidth maxWidth="xs">
-        <DialogTitle>{departmentDialog.mode === 'create' ? 'Create Department' : 'Edit Department'}</DialogTitle>
-        <DialogContent><TextField fullWidth sx={{ mt: 1 }} label="Department Name" value={departmentDialog.data.name || ''} onChange={(event) => setDepartmentDialog((prev) => ({ ...prev, data: { ...prev.data, name: event.target.value } }))} /></DialogContent>
-        <DialogActions><Button onClick={() => setDepartmentDialog({ open: false, mode: 'create', data: {} })}>Cancel</Button><Button variant="contained" onClick={() => upsertDepartment().catch((error) => notify(error.message, 'error'))}>Save</Button></DialogActions>
+      <Dialog
+        open={departmentDialog.open}
+        onClose={() => setDepartmentDialog({ open: false, mode: 'create', data: {} })}
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle>
+          {departmentDialog.mode === 'create' ? 'Create Department' : 'Edit Department'}
+        </DialogTitle>
+        <DialogContent
+          sx={{
+            mt: 1,
+            background:
+              'radial-gradient(circle at 0 0, rgba(45, 212, 191, 0.4), rgba(15, 23, 42, 0.98))'
+          }}
+        >
+          <Stack spacing={2}>
+            <TextField
+              fullWidth
+              label="Department Name"
+              value={departmentDialog.data.name || ''}
+              onChange={(event) =>
+                setDepartmentDialog((prev) => ({
+                  ...prev,
+                  data: { ...prev.data, name: event.target.value }
+                }))
+              }
+            />
+            <TextField
+              fullWidth
+              label="Description (optional)"
+              value={departmentDialog.data.description || ''}
+              multiline
+              rows={2}
+              onChange={(event) =>
+                setDepartmentDialog((prev) => ({
+                  ...prev,
+                  data: { ...prev.data, description: event.target.value }
+                }))
+              }
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setDepartmentDialog({ open: false, mode: 'create', data: {} })}
+            sx={outlinedLightButtonSx}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => upsertDepartment().catch((error) => notify(error.message, 'error'))}
+          >
+            Save
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog open={staffDialog.open} onClose={() => setStaffDialog({ open: false, mode: 'create', data: {} })} fullWidth maxWidth="sm">
