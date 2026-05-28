@@ -115,6 +115,7 @@ import {
   updateGuard,
   updateStaff
 } from './lib/api';
+import { exportOperationsReportPdf } from './lib/pdfReport';
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 const guardDrawerWidth = 280;
@@ -306,6 +307,27 @@ const theme = createTheme({
   },
   shape: { borderRadius: 12 },
   components: {
+    MuiDialog: {
+      styleOverrides: {
+        paper: {
+          backgroundColor: '#0f172a',
+          backgroundImage: 'none'
+        }
+      }
+    },
+    MuiDialogTitle: {
+      styleOverrides: {
+        root: { color: '#E5E7EB' }
+      }
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: {
+          backgroundColor: '#020617',
+          color: '#E5E7EB'
+        }
+      }
+    },
     MuiInputLabel: {
       styleOverrides: {
         root: {
@@ -378,6 +400,71 @@ const outlinedLightButtonSx = {
   }
 };
 
+const dialogPaperSx = {
+  backgroundColor: '#0f172a',
+  border: '1px solid rgba(148, 163, 184, 0.35)',
+  borderRadius: 3,
+  backgroundImage: 'none'
+};
+
+const dialogTitleSx = {
+  color: '#E5E7EB',
+  fontWeight: 800,
+  borderBottom: '1px solid rgba(148, 163, 184, 0.2)',
+  pb: 1.5
+};
+
+const dialogContentSx = {
+  backgroundColor: '#020617',
+  color: '#E5E7EB',
+  pt: 2.5,
+  pb: 1,
+  overflow: 'visible'
+};
+
+const dialogActionsSx = {
+  backgroundColor: '#0f172a',
+  borderTop: '1px solid rgba(148, 163, 184, 0.2)',
+  px: 2.5,
+  py: 1.5,
+  gap: 1
+};
+
+const dialogFieldSx = {
+  '& .MuiInputLabel-root': { color: '#94A3B8' },
+  '& .MuiInputLabel-root.Mui-focused': { color: '#93C5FD' },
+  '& .MuiOutlinedInput-root': {
+    color: '#E5E7EB',
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    '& fieldset': { borderColor: 'rgba(148, 163, 184, 0.55)' },
+    '&:hover fieldset': { borderColor: '#93C5FD' },
+    '&.Mui-focused fieldset': { borderColor: '#60A5FA' }
+  },
+  '& .MuiOutlinedInput-input': {
+    color: '#E5E7EB',
+    WebkitTextFillColor: '#E5E7EB',
+    caretColor: '#E5E7EB'
+  },
+  '& .MuiSelect-icon': { color: '#E5E7EB' },
+  '& .MuiFormHelperText-root': { color: '#94A3B8', minHeight: 20 }
+};
+
+function FormDialog({ open, onClose, title, children, actions, maxWidth = 'sm' }) {
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      fullWidth
+      maxWidth={maxWidth}
+      PaperProps={{ sx: dialogPaperSx }}
+    >
+      <DialogTitle sx={dialogTitleSx}>{title}</DialogTitle>
+      <DialogContent sx={dialogContentSx}>{children}</DialogContent>
+      <DialogActions sx={dialogActionsSx}>{actions}</DialogActions>
+    </Dialog>
+  );
+}
+
 function StatusChip({ status }) {
   let color = 'default';
   if (status === 'Inside') color = 'info';
@@ -386,18 +473,26 @@ function StatusChip({ status }) {
   return <Chip label={status} color={color} size="small" />;
 }
 
+const LOGIN_ROLES = [
+  { key: 'guard', label: 'Guard', icon: <AssignmentIndIcon fontSize="small" />, color: '#22C55E' },
+  { key: 'supervisor', label: 'Supervisor', icon: <GroupIcon fontSize="small" />, color: '#60A5FA' },
+  { key: 'admin', label: 'Admin', icon: <ShieldIcon fontSize="small" />, color: '#A78BFA' }
+];
+
 function LoginPage({ onLogin, busy }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [selectedRole, setSelectedRole] = useState('guard');
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState({ username: '', password: '' });
+  const [errors, setErrors] = useState({ username: '', password: '', role: '' });
 
   const validate = () => {
-    const next = { username: '', password: '' };
+    const next = { username: '', password: '', role: '' };
     if (!username.trim()) next.username = 'Username is required.';
     if (!password) next.password = 'Password is required.';
+    if (!selectedRole) next.role = 'Select your role before signing in.';
     setErrors(next);
-    return !next.username && !next.password;
+    return !next.username && !next.password && !next.role;
   };
 
   const AuthLoading = () => (
@@ -455,7 +550,7 @@ function LoginPage({ onLogin, busy }) {
   const submit = (event) => {
     event.preventDefault();
     if (!validate()) return;
-    onLogin(username, password);
+    onLogin(username, password, selectedRole);
   };
 
   return (
@@ -632,9 +727,48 @@ function LoginPage({ onLogin, busy }) {
               </Typography>
             </Box>
           </Stack>
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, mb: 2.2 }}>
-            Access control for Admin, Supervisor, and Guard
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, mb: 1.5 }}>
+            Select your role, then sign in with your gate credentials.
           </Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+            {LOGIN_ROLES.map((role) => {
+              const active = selectedRole === role.key;
+              return (
+                <Button
+                  key={role.key}
+                  type="button"
+                  variant={active ? 'contained' : 'outlined'}
+                  onClick={() => {
+                    setSelectedRole(role.key);
+                    if (errors.role) setErrors((prev) => ({ ...prev, role: '' }));
+                  }}
+                  startIcon={role.icon}
+                  sx={{
+                    flex: 1,
+                    minHeight: 44,
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    borderRadius: 2,
+                    color: active ? '#fff' : '#E5E7EB',
+                    borderColor: active ? role.color : 'rgba(148, 163, 184, 0.45)',
+                    background: active
+                      ? `linear-gradient(135deg, ${role.color}, rgba(15,23,42,0.9))`
+                      : 'rgba(15, 23, 42, 0.5)',
+                    boxShadow: active ? `0 8px 22px ${role.color}55` : 'none',
+                    transform: active ? 'translateY(-2px)' : 'none',
+                    transition: 'all 180ms ease'
+                  }}
+                >
+                  {role.label}
+                </Button>
+              );
+            })}
+          </Stack>
+          {errors.role ? (
+            <Typography variant="caption" color="error" sx={{ display: 'block', mb: 1 }}>
+              {errors.role}
+            </Typography>
+          ) : null}
           <Box component="form" onSubmit={submit}>
             <Stack spacing={2}>
               <TextField
@@ -1778,12 +1912,22 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
                 variant="outlined"
                 sx={outlinedLightButtonSx}
                 onClick={() => {
-                  const ok = exportRowsAsPdf(
+                  const ok = exportOperationsReportPdf({
                     movements,
-                    'guard_daily_report.pdf',
-                    'Guard Daily Activity Report',
-                    canViewFullReports
-                  );
+                    metrics: {
+                      visitorsToday: summary.visitorsToday,
+                      vehiclesLogged: summary.vehiclesLogged,
+                      deliveries: summary.deliveries,
+                      yardExits: summary.yardExits,
+                      repossessed: movements.filter((row) => row.type === 'Repossessed Vehicle').length,
+                      visitorsInside: currentVisitors.length
+                    },
+                    fileName: 'guard_daily_report.pdf',
+                    title: 'Guard Daily Operations Report',
+                    reportDate: selectedDate,
+                    generatedBy: user.fullName,
+                    roleLabel: user.role
+                  });
                   if (!ok) notify('No data to export.', 'warning');
                 }}
               >
@@ -1887,53 +2031,67 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
         </MenuItem>
       </Menu>
 
-      <Dialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>My Profile</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.2} sx={{ mt: 1 }}>
-            <TextField label="Full Name" value={user.fullName} disabled fullWidth />
-            <TextField label="Username" value={user.username} disabled fullWidth />
-            <TextField label="Role" value={user.role} disabled fullWidth />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setProfileDialogOpen(false)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <FormDialog
+        open={profileDialogOpen}
+        onClose={() => setProfileDialogOpen(false)}
+        title="My Profile"
+        maxWidth="xs"
+        actions={<Button onClick={() => setProfileDialogOpen(false)}>Close</Button>}
+      >
+        <Stack spacing={1.5}>
+          <TextField label="Full Name" value={user.fullName} disabled fullWidth sx={dialogFieldSx} />
+          <TextField label="Username" value={user.username} disabled fullWidth sx={dialogFieldSx} />
+          <TextField label="Role" value={user.role} disabled fullWidth sx={dialogFieldSx} />
+        </Stack>
+      </FormDialog>
 
-      <Dialog open={passwordDialogOpen} onClose={() => setPasswordDialogOpen(false)} fullWidth maxWidth="xs">
-        <DialogTitle>Change Password</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.2} sx={{ mt: 1 }}>
-            <TextField
-              type="password"
-              label="Current Password"
-              value={passwordForm.current_password}
-              onChange={(event) =>
-                setPasswordForm((prev) => ({ ...prev, current_password: event.target.value }))
-              }
-              fullWidth
-            />
-            <TextField
-              type="password"
-              label="New Password"
-              value={passwordForm.new_password}
-              onChange={(event) =>
-                setPasswordForm((prev) => ({ ...prev, new_password: event.target.value }))
-              }
-              fullWidth
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPasswordDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handlePasswordChange}>Update</Button>
-        </DialogActions>
-      </Dialog>
+      <FormDialog
+        open={passwordDialogOpen}
+        onClose={() => setPasswordDialogOpen(false)}
+        title="Change Password"
+        maxWidth="xs"
+        actions={
+          <>
+            <Button onClick={() => setPasswordDialogOpen(false)} sx={outlinedLightButtonSx}>
+              Cancel
+            </Button>
+            <Button variant="contained" onClick={handlePasswordChange}>
+              Update
+            </Button>
+          </>
+        }
+      >
+        <Stack spacing={1.5}>
+          <TextField
+            type="password"
+            label="Current Password"
+            value={passwordForm.current_password}
+            onChange={(event) =>
+              setPasswordForm((prev) => ({ ...prev, current_password: event.target.value }))
+            }
+            fullWidth
+            sx={dialogFieldSx}
+          />
+          <TextField
+            type="password"
+            label="New Password"
+            value={passwordForm.new_password}
+            onChange={(event) =>
+              setPasswordForm((prev) => ({ ...prev, new_password: event.target.value }))
+            }
+            fullWidth
+            sx={dialogFieldSx}
+          />
+        </Stack>
+      </FormDialog>
 
-      <Dialog open={notificationModalOpen} onClose={() => setNotificationModalOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Notifications</DialogTitle>
-        <DialogContent>
+      <FormDialog
+        open={notificationModalOpen}
+        onClose={() => setNotificationModalOpen(false)}
+        title="Notifications"
+        maxWidth="sm"
+        actions={<Button variant="contained" onClick={() => setNotificationModalOpen(false)}>Close</Button>}
+      >
           <Stack spacing={1}>
             {notifications.length ? (
               notifications.map((item) => (
@@ -1945,13 +2103,7 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
               <Typography color="text.secondary">No notifications available.</Typography>
             )}
           </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button variant="contained" onClick={() => setNotificationModalOpen(false)}>
-            Close
-          </Button>
-        </DialogActions>
-      </Dialog>
+      </FormDialog>
     </Box>
   );
 }
@@ -2030,10 +2182,18 @@ function App() {
     bootstrap();
   }, []);
 
-  const handleLogin = async (username, password) => {
+  const handleLogin = async (username, password, selectedRole) => {
     setBusyLogin(true);
     try {
       const response = await login(username, password);
+      if (response.user.role !== selectedRole) {
+        setToken('');
+        notify(
+          `This account is registered as "${response.user.role}". Tap the ${response.user.role} role button and try again.`,
+          'error'
+        );
+        return;
+      }
       setToken(response.token);
       setAuthUser(response.user);
       await loadDepartments();
@@ -3025,7 +3185,22 @@ function AdminPage({ user, onLogout, notify }) {
               variant="outlined"
               sx={outlinedLightButtonSx}
               onClick={() => {
-                const ok = exportRowsAsPdf(movements, 'daily_activity_report.pdf', 'Daily Activity Report', true);
+                const ok = exportOperationsReportPdf({
+                  movements,
+                  metrics: {
+                    visitorsToday: analytics?.visitors ?? 0,
+                    vehiclesLogged: analytics?.vehicle_entries ?? 0,
+                    deliveries: analytics?.deliveries ?? 0,
+                    yardExits: analytics?.yard_exits ?? 0,
+                    repossessed: analytics?.repossessed ?? 0,
+                    visitorsInside: movements.filter((m) => m.type === 'Visitor' && m.status === 'Inside').length
+                  },
+                  fileName: 'daily_activity_report.pdf',
+                  title: user.role === 'admin' ? 'Admin Operations Report' : 'Supervisor Operations Report',
+                  reportDate: selectedDate,
+                  generatedBy: user.fullName,
+                  roleLabel: user.role
+                });
                 if (!ok) notify('No data to export.', 'warning');
               }}
             >
@@ -3071,9 +3246,15 @@ function AdminPage({ user, onLogout, notify }) {
         <MenuItem onClick={onLogout}>Logout</MenuItem>
       </Menu>
 
-      <Dialog open={notificationModalOpen} onClose={() => setNotificationModalOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>Notifications</DialogTitle>
-        <DialogContent>
+      <Dialog
+        open={notificationModalOpen}
+        onClose={() => setNotificationModalOpen(false)}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{ sx: dialogPaperSx }}
+      >
+        <DialogTitle sx={dialogTitleSx}>Notifications</DialogTitle>
+        <DialogContent sx={dialogContentSx}>
           <Stack spacing={1.2}>
             {notificationItems.length ? (
               notificationItems.map((item) => (
@@ -3247,7 +3428,7 @@ function AdminPage({ user, onLogout, notify }) {
             )}
           </Stack>
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={dialogActionsSx}>
           <Button onClick={() => setNotificationItems((prev) => prev.map((row) => ({ ...row, read: true })))}>
             Mark All Read
           </Button>
@@ -3260,183 +3441,214 @@ function AdminPage({ user, onLogout, notify }) {
         </DialogActions>
       </Dialog>
 
-      <Dialog
+      <FormDialog
         open={guardDialog.open}
         onClose={() => setGuardDialog({ open: false, mode: 'create', data: {} })}
-        fullWidth
+        title={guardDialog.mode === 'create' ? 'Add User' : 'Edit User'}
         maxWidth="sm"
+        actions={
+          <>
+            <Button
+              onClick={() => setGuardDialog({ open: false, mode: 'create', data: {} })}
+              sx={outlinedLightButtonSx}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => upsertGuard().catch((error) => notify(error.message, 'error'))}
+            >
+              Save
+            </Button>
+          </>
+        }
       >
-        <DialogTitle>
-          {guardDialog.mode === 'create' ? 'Add User' : 'Edit User'}
-        </DialogTitle>
-        <DialogContent
-          sx={{
-            mt: 1,
-            background:
-              'radial-gradient(circle at 0 0, rgba(30, 64, 175, 0.5), rgba(15, 23, 42, 0.98))'
-          }}
-        >
-          <Stack spacing={2.2}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-              <TextField
-                label="Full Name"
-                fullWidth
-                value={guardDialog.data.full_name || ''}
-                onChange={(event) =>
-                  setGuardDialog((prev) => ({
-                    ...prev,
-                    data: { ...prev.data, full_name: event.target.value }
-                  }))
-                }
-              />
-              <TextField
-                label="Username"
-                fullWidth
-                value={guardDialog.data.username || ''}
-                onChange={(event) =>
-                  setGuardDialog((prev) => ({
-                    ...prev,
-                    data: { ...prev.data, username: event.target.value }
-                  }))
-                }
-              />
-            </Stack>
+        <Stack spacing={2}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
             <TextField
-              label="Password"
-              type="password"
-              value={guardDialog.data.password || ''}
+              label="Full Name"
+              fullWidth
+              sx={dialogFieldSx}
+              value={guardDialog.data.full_name || ''}
               onChange={(event) =>
                 setGuardDialog((prev) => ({
                   ...prev,
-                  data: { ...prev.data, password: event.target.value }
+                  data: { ...prev.data, full_name: event.target.value }
                 }))
               }
             />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-              <FormControl fullWidth>
-                <InputLabel>Role</InputLabel>
-                <Select
-                  label="Role"
-                  value={guardDialog.data.role || 'guard'}
-                  onChange={(event) =>
-                    setGuardDialog((prev) => ({
-                      ...prev,
-                      data: { ...prev.data, role: event.target.value }
-                    }))
-                  }
-                  disabled={user.role !== 'admin'}
-                >
-                  <MenuItem value="guard">Guard</MenuItem>
-                  {user.role === 'admin' && (
-                    <MenuItem value="supervisor">Supervisor</MenuItem>
-                  )}
-                </Select>
-              </FormControl>
-              <FormControl fullWidth>
-                <InputLabel>Status</InputLabel>
-                <Select
-                  label="Status"
-                  value={guardDialog.data.status || 'active'}
-                  onChange={(event) =>
-                    setGuardDialog((prev) => ({
-                      ...prev,
-                      data: { ...prev.data, status: event.target.value }
-                    }))
-                  }
-                >
-                  <MenuItem value="active">Active</MenuItem>
-                  <MenuItem value="disabled">Disabled</MenuItem>
-                </Select>
-              </FormControl>
-            </Stack>
+            <TextField
+              label="Username"
+              fullWidth
+              sx={dialogFieldSx}
+              value={guardDialog.data.username || ''}
+              onChange={(event) =>
+                setGuardDialog((prev) => ({
+                  ...prev,
+                  data: { ...prev.data, username: event.target.value }
+                }))
+              }
+            />
           </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => setGuardDialog({ open: false, mode: 'create', data: {} })}
-            sx={outlinedLightButtonSx}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => upsertGuard().catch((error) => notify(error.message, 'error'))}
-          >
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
+          <TextField
+            label={guardDialog.mode === 'create' ? 'Password' : 'Password (leave blank to keep)'}
+            type="password"
+            fullWidth
+            sx={dialogFieldSx}
+            value={guardDialog.data.password || ''}
+            onChange={(event) =>
+              setGuardDialog((prev) => ({
+                ...prev,
+                data: { ...prev.data, password: event.target.value }
+              }))
+            }
+          />
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+            <FormControl fullWidth sx={dialogFieldSx}>
+              <InputLabel>Role</InputLabel>
+              <Select
+                label="Role"
+                value={guardDialog.data.role || 'guard'}
+                onChange={(event) =>
+                  setGuardDialog((prev) => ({
+                    ...prev,
+                    data: { ...prev.data, role: event.target.value }
+                  }))
+                }
+                disabled={user.role !== 'admin'}
+                MenuProps={{ PaperProps: { sx: { backgroundColor: '#0f172a', color: '#e5e7eb' } } }}
+              >
+                <MenuItem value="guard">Guard</MenuItem>
+                {user.role === 'admin' && <MenuItem value="supervisor">Supervisor</MenuItem>}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth sx={dialogFieldSx}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                label="Status"
+                value={guardDialog.data.status || 'active'}
+                onChange={(event) =>
+                  setGuardDialog((prev) => ({
+                    ...prev,
+                    data: { ...prev.data, status: event.target.value }
+                  }))
+                }
+                MenuProps={{ PaperProps: { sx: { backgroundColor: '#0f172a', color: '#e5e7eb' } } }}
+              >
+                <MenuItem value="active">Active</MenuItem>
+                <MenuItem value="disabled">Disabled</MenuItem>
+              </Select>
+            </FormControl>
+          </Stack>
+        </Stack>
+      </FormDialog>
 
-      <Dialog
+      <FormDialog
         open={departmentDialog.open}
         onClose={() => setDepartmentDialog({ open: false, mode: 'create', data: {} })}
-        fullWidth
+        title={departmentDialog.mode === 'create' ? 'Create Department' : 'Edit Department'}
         maxWidth="xs"
+        actions={
+          <>
+            <Button
+              onClick={() => setDepartmentDialog({ open: false, mode: 'create', data: {} })}
+              sx={outlinedLightButtonSx}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => upsertDepartment().catch((error) => notify(error.message, 'error'))}
+            >
+              Save
+            </Button>
+          </>
+        }
       >
-        <DialogTitle>
-          {departmentDialog.mode === 'create' ? 'Create Department' : 'Edit Department'}
-        </DialogTitle>
-        <DialogContent
-          sx={{
-            mt: 1,
-            background:
-              'radial-gradient(circle at 0 0, rgba(45, 212, 191, 0.4), rgba(15, 23, 42, 0.98))'
-          }}
-        >
-          <Stack spacing={2}>
-            <TextField
-              fullWidth
-              label="Department Name"
-              value={departmentDialog.data.name || ''}
-              onChange={(event) =>
-                setDepartmentDialog((prev) => ({
-                  ...prev,
-                  data: { ...prev.data, name: event.target.value }
-                }))
-              }
-            />
-            <TextField
-              fullWidth
-              label="Description (optional)"
-              value={departmentDialog.data.description || ''}
-              multiline
-              rows={2}
-              onChange={(event) =>
-                setDepartmentDialog((prev) => ({
-                  ...prev,
-                  data: { ...prev.data, description: event.target.value }
-                }))
-              }
-            />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button
-            onClick={() => setDepartmentDialog({ open: false, mode: 'create', data: {} })}
-            sx={outlinedLightButtonSx}
-          >
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            onClick={() => upsertDepartment().catch((error) => notify(error.message, 'error'))}
-          >
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
+        <Stack spacing={2}>
+          <TextField
+            fullWidth
+            label="Department Name"
+            sx={dialogFieldSx}
+            value={departmentDialog.data.name || ''}
+            onChange={(event) =>
+              setDepartmentDialog((prev) => ({
+                ...prev,
+                data: { ...prev.data, name: event.target.value }
+              }))
+            }
+          />
+          <TextField
+            fullWidth
+            label="Description (optional)"
+            sx={dialogFieldSx}
+            value={departmentDialog.data.description || ''}
+            multiline
+            rows={2}
+            onChange={(event) =>
+              setDepartmentDialog((prev) => ({
+                ...prev,
+                data: { ...prev.data, description: event.target.value }
+              }))
+            }
+          />
+        </Stack>
+      </FormDialog>
 
-      <Dialog open={staffDialog.open} onClose={() => setStaffDialog({ open: false, mode: 'create', data: {} })} fullWidth maxWidth="sm">
-        <DialogTitle>{staffDialog.mode === 'create' ? 'Create Staff Member' : 'Edit Staff Member'}</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField label="Full Name" value={staffDialog.data.full_name || ''} onChange={(event) => setStaffDialog((prev) => ({ ...prev, data: { ...prev.data, full_name: event.target.value } }))} fullWidth />
-            <FormControl fullWidth><InputLabel>Department</InputLabel><Select label="Department" value={staffDialog.data.department_id || ''} onChange={(event) => setStaffDialog((prev) => ({ ...prev, data: { ...prev.data, department_id: event.target.value } }))}>{departments.map((department) => (<MenuItem key={department.id} value={department.id}>{department.name}</MenuItem>))}</Select></FormControl>
-            <TextField label="Title (Optional)" value={staffDialog.data.title || ''} onChange={(event) => setStaffDialog((prev) => ({ ...prev, data: { ...prev.data, title: event.target.value } }))} fullWidth />
-          </Stack>
-        </DialogContent>
-        <DialogActions><Button onClick={() => setStaffDialog({ open: false, mode: 'create', data: {} })}>Cancel</Button><Button variant="contained" onClick={() => upsertStaff().catch((error) => notify(error.message, 'error'))}>Save</Button></DialogActions>
-      </Dialog>
+      <FormDialog
+        open={staffDialog.open}
+        onClose={() => setStaffDialog({ open: false, mode: 'create', data: {} })}
+        title={staffDialog.mode === 'create' ? 'Create Staff Member' : 'Edit Staff Member'}
+        maxWidth="sm"
+        actions={
+          <>
+            <Button onClick={() => setStaffDialog({ open: false, mode: 'create', data: {} })} sx={outlinedLightButtonSx}>
+              Cancel
+            </Button>
+            <Button variant="contained" onClick={() => upsertStaff().catch((error) => notify(error.message, 'error'))}>
+              Save
+            </Button>
+          </>
+        }
+      >
+        <Stack spacing={2}>
+          <TextField
+            label="Full Name"
+            value={staffDialog.data.full_name || ''}
+            onChange={(event) =>
+              setStaffDialog((prev) => ({ ...prev, data: { ...prev.data, full_name: event.target.value } }))
+            }
+            fullWidth
+            sx={dialogFieldSx}
+          />
+          <FormControl fullWidth sx={dialogFieldSx}>
+            <InputLabel>Department</InputLabel>
+            <Select
+              label="Department"
+              value={staffDialog.data.department_id || ''}
+              onChange={(event) =>
+                setStaffDialog((prev) => ({ ...prev, data: { ...prev.data, department_id: event.target.value } }))
+              }
+              MenuProps={{ PaperProps: { sx: { backgroundColor: '#0f172a', color: '#e5e7eb' } } }}
+            >
+              {departments.map((department) => (
+                <MenuItem key={department.id} value={department.id}>
+                  {department.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField
+            label="Title (Optional)"
+            value={staffDialog.data.title || ''}
+            onChange={(event) =>
+              setStaffDialog((prev) => ({ ...prev, data: { ...prev.data, title: event.target.value } }))
+            }
+            fullWidth
+            sx={dialogFieldSx}
+          />
+        </Stack>
+      </FormDialog>
     </Box>
   );
 }
