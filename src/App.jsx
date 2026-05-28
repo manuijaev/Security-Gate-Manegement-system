@@ -1,5 +1,5 @@
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Autocomplete,
@@ -61,6 +61,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import LogoutIcon from '@mui/icons-material/Logout';
 import MeetingRoomIcon from '@mui/icons-material/MeetingRoom';
 import NotificationsIcon from '@mui/icons-material/Notifications';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
 import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import SearchIcon from '@mui/icons-material/Search';
@@ -96,6 +97,7 @@ import {
   deleteGuard,
   deleteStaff,
   deleteMovement,
+  getMovementRecord,
   getAdminDepartments,
   getAdminStaff,
   getAnalytics,
@@ -109,6 +111,7 @@ import {
   getToken,
   login,
   logout,
+  updateMovement,
   markExit,
   setToken,
   updateDepartment,
@@ -116,9 +119,20 @@ import {
   updateStaff
 } from './lib/api';
 import { exportOperationsReportPdf } from './lib/pdfReport';
+import { useAutoRefresh } from './hooks/useAutoRefresh';
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+const LIVE_REFRESH_MS = 12000;
 const guardDrawerWidth = 280;
+
+function formatSyncLabel(timestamp) {
+  if (!timestamp) return 'syncing…';
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 5) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ago`;
+}
 
 function formatEatTimestamp(value) {
   if (!value) return '-';
@@ -471,6 +485,117 @@ function StatusChip({ status }) {
   if (status === 'Exited' || status === 'Completed') color = 'success';
   if (status === 'Approved' || status === 'Recorded') color = 'warning';
   return <Chip label={status} color={color} size="small" />;
+}
+
+const MOVEMENT_ENTITY = {
+  Visitor: 'visitors',
+  'Vehicle Entry': 'vehicle_entries',
+  Delivery: 'deliveries',
+  'Yard Exit': 'yard_exits',
+  'Repossessed Vehicle': 'repossessed_vehicles'
+};
+
+function movementEntityForType(type) {
+  return MOVEMENT_ENTITY[type] || null;
+}
+
+function recordToEditForm(row, record) {
+  if (!record) return {};
+  switch (row.type) {
+    case 'Visitor':
+      return {
+        first_name: record.first_name || '',
+        surname: record.surname || '',
+        phone_number: record.phone_number || '',
+        id_number: record.id_number || '',
+        person_to_see: record.person_to_see || '',
+        department: record.department || '',
+        vehicle_registration: record.vehicle_registration || ''
+      };
+    case 'Vehicle Entry':
+      return {
+        vehicle_registration: record.vehicle_registration || '',
+        vehicle_manufacturer: record.vehicle_manufacturer || '',
+        vehicle_color: record.vehicle_color || '',
+        driver_name: record.driver_name || '',
+        vehicle_type: record.vehicle_type || '',
+        purpose: record.purpose || '',
+        destination: record.destination || ''
+      };
+    case 'Delivery':
+      return {
+        delivery_company: record.delivery_company || '',
+        driver_name: record.driver_name || '',
+        vehicle_model: record.vehicle_model || '',
+        vehicle_registration: record.vehicle_registration || '',
+        notes: record.notes || ''
+      };
+    case 'Yard Exit':
+      return {
+        vehicle_registration: record.vehicle_registration || '',
+        person_taking_vehicle: record.person_taking_vehicle || '',
+        reason_for_removal: record.reason_for_removal || '',
+        supervisor_approval: record.supervisor_approval || ''
+      };
+    case 'Repossessed Vehicle':
+      return {
+        vehicle_registration: record.vehicle_registration || '',
+        recovery_company: record.recovery_company || '',
+        person_delivering_vehicle: record.person_delivering_vehicle || '',
+        notes: record.notes || ''
+      };
+    default:
+      return {};
+  }
+}
+
+function buildUpdatePayload(type, form) {
+  switch (type) {
+    case 'Visitor':
+      return {
+        first_name: form.first_name,
+        surname: form.surname,
+        phone_number: form.phone_number || null,
+        id_number: form.id_number || null,
+        person_to_see: form.person_to_see || null,
+        department: form.department || null,
+        vehicle_registration: form.vehicle_registration || null
+      };
+    case 'Vehicle Entry':
+      return {
+        vehicle_registration: form.vehicle_registration,
+        vehicle_manufacturer: form.vehicle_manufacturer || null,
+        vehicle_color: form.vehicle_color || null,
+        driver_name: form.driver_name || null,
+        vehicle_type: form.vehicle_type || null,
+        purpose: form.purpose || null,
+        destination: form.destination || null
+      };
+    case 'Delivery':
+      return {
+        delivery_company: form.delivery_company,
+        driver_name: form.driver_name || null,
+        vehicle_model: form.vehicle_model || null,
+        vehicle_registration: form.vehicle_registration || null,
+        notes: form.notes || null
+      };
+    case 'Yard Exit':
+      return {
+        vehicle_registration: form.vehicle_registration,
+        person_taking_vehicle: form.person_taking_vehicle || null,
+        reason_for_removal: form.reason_for_removal || null,
+        supervisor_approval: form.supervisor_approval || null
+      };
+    case 'Repossessed Vehicle':
+      return {
+        vehicle_registration: form.vehicle_registration,
+        recovery_company: form.recovery_company || null,
+        person_delivering_vehicle: form.person_delivering_vehicle || null,
+        notes: form.notes || null
+      };
+    default:
+      return {};
+  }
 }
 
 const LOGIN_ROLES = [
@@ -834,6 +959,9 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
   const [notifications, setNotifications] = useState([]);
   const [notificationModalOpen, setNotificationModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [, setSyncTick] = useState(0);
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('All Types');
   const [departmentFilter, setDepartmentFilter] = useState('All Departments');
@@ -842,12 +970,15 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current_password: '', new_password: '' });
+  const [recordDialog, setRecordDialog] = useState({ open: false, row: null, form: {}, saving: false });
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const selectedDate = date.format('YYYY-MM-DD');
   const isSupervisor = user.role === 'supervisor';
 
   const guardViews = [
     { key: 'Dashboard', icon: <DashboardIcon /> },
+    { key: 'Records', icon: <FactCheckIcon /> },
     { key: 'Register Visitor', icon: <PersonAddAlt1Icon /> },
     { key: 'Visitor Exit', icon: <MeetingRoomIcon /> },
     { key: 'Vehicle Entry', icon: <DirectionsCarIcon /> },
@@ -938,32 +1069,45 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
       .catch((error) => notify(error.message, 'error'));
   }, [activeView, formData.department]);
 
-  const refreshGuardData = async () => {
-    setIsLoading(true);
-    try {
-      const [summaryData, movementData, alertData] = await Promise.all([
-        getSummary(selectedDate),
-        getMovements({
-          date: selectedDate,
-          search,
-          type: typeFilter,
-          department: departmentFilter
-        }),
-        getGuardNotifications()
-      ]);
-      setSummary(summaryData);
-      setMovements(movementData);
-      setNotifications(alertData);
-    } catch (error) {
-      notify(error.message, 'error');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const refreshGuardData = useCallback(
+    async ({ silent = false } = {}) => {
+      if (!silent) setIsLoading(true);
+      else setIsRefreshing(true);
+      try {
+        const [summaryData, movementData, alertData] = await Promise.all([
+          getSummary(selectedDate),
+          getMovements({
+            date: selectedDate,
+            search,
+            type: typeFilter,
+            department: departmentFilter
+          }),
+          getGuardNotifications()
+        ]);
+        setSummary(summaryData);
+        setMovements(movementData);
+        setNotifications(alertData);
+        setLastSyncedAt(Date.now());
+      } catch (error) {
+        notify(error.message, 'error');
+      } finally {
+        if (!silent) setIsLoading(false);
+        setIsRefreshing(false);
+      }
+    },
+    [selectedDate, search, typeFilter, departmentFilter, notify]
+  );
 
   useEffect(() => {
     refreshGuardData();
-  }, [selectedDate, search, typeFilter, departmentFilter]);
+  }, [refreshGuardData]);
+
+  useAutoRefresh(refreshGuardData, [refreshGuardData], LIVE_REFRESH_MS);
+
+  useEffect(() => {
+    const id = setInterval(() => setSyncTick(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, []);
 
   const submitGuardForm = async () => {
     const timestamp = dayjs().toISOString();
@@ -1007,6 +1151,262 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
 
   const currentVisitors = movements.filter((row) => row.type === 'Visitor' && row.status === 'Inside');
   const currentVehicles = movements.filter((row) => row.type === 'Vehicle Entry' && row.status === 'Inside');
+  const registeredVisitors = useMemo(
+    () => movements.filter((row) => row.type === 'Visitor'),
+    [movements]
+  );
+
+  const filteredRecords = useMemo(() => {
+    if (typeFilter !== 'All Types') {
+      return movements.filter((row) => row.type === typeFilter);
+    }
+    return movements;
+  }, [movements, typeFilter]);
+
+  const openEditRecord = async (row) => {
+    const entity = movementEntityForType(row.type);
+    if (!entity) {
+      notify('This record type cannot be edited.', 'warning');
+      return;
+    }
+    try {
+      const record = await getMovementRecord(entity, row.recordId);
+      setRecordDialog({
+        open: true,
+        row,
+        form: recordToEditForm(row, record),
+        saving: false
+      });
+    } catch (error) {
+      notify(error.message, 'error');
+    }
+  };
+
+  const saveRecordEdit = async () => {
+    const { row, form } = recordDialog;
+    if (!row) return;
+    const entity = movementEntityForType(row.type);
+    if (!entity) return;
+
+    if (row.type === 'Visitor' && (!form.first_name?.trim() || !form.surname?.trim())) {
+      notify('First name and last name are required.', 'warning');
+      return;
+    }
+
+    setRecordDialog((prev) => ({ ...prev, saving: true }));
+    try {
+      await updateMovement(entity, row.recordId, buildUpdatePayload(row.type, form));
+      setRecordDialog({ open: false, row: null, form: {}, saving: false });
+      notify('Record updated.', 'success');
+      await refreshGuardData({ silent: true });
+    } catch (error) {
+      notify(error.message, 'error');
+      setRecordDialog((prev) => ({ ...prev, saving: false }));
+    }
+  };
+
+  const handleDeleteRecord = async () => {
+    if (!deleteTarget) return;
+    const entity = movementEntityForType(deleteTarget.type);
+    if (!entity) return;
+    try {
+      await deleteMovement(entity, deleteTarget.recordId);
+      setDeleteTarget(null);
+      notify('Record deleted.', 'success');
+      await refreshGuardData({ silent: true });
+    } catch (error) {
+      notify(error.message, 'error');
+    }
+  };
+
+  const renderRecordActions = (row) => (
+    <Stack direction="row" spacing={0.25}>
+      <IconButton size="small" color="info" aria-label="Edit record" onClick={() => openEditRecord(row)}>
+        <EditIcon fontSize="small" />
+      </IconButton>
+      <IconButton size="small" color="error" aria-label="Delete record" onClick={() => setDeleteTarget(row)}>
+        <DeleteIcon fontSize="small" />
+      </IconButton>
+      {row.status === 'Inside' && (row.type === 'Visitor' || row.type === 'Vehicle Entry') && (
+        <IconButton
+          size="small"
+          color="warning"
+          aria-label="Mark exit"
+          onClick={() =>
+            markExit(row.entity, row.recordId)
+              .then(() => notify('Exit recorded.', 'success'))
+              .then(() => refreshGuardData({ silent: true }))
+              .catch((error) => notify(error.message, 'error'))
+          }
+        >
+          <ExitToAppIcon fontSize="small" />
+        </IconButton>
+      )}
+    </Stack>
+  );
+
+  const renderRecordsTable = (rows, { title, showTypeColumn = false } = {}) => (
+    <Card sx={{ backgroundColor: '#020617', borderRadius: 3, border: '1px solid rgba(148, 163, 184, 0.2)' }}>
+      <CardContent>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          alignItems={{ xs: 'flex-start', sm: 'center' }}
+          justifyContent="space-between"
+          spacing={1}
+          sx={{ mb: 1.5 }}
+        >
+          <Box>
+            <Typography variant="h6" fontWeight={800}>
+              {title}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {rows.length} record{rows.length === 1 ? '' : 's'} for {selectedDate}
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={<PersonAddAlt1Icon />}
+            onClick={() => setActiveView('Register Visitor')}
+            sx={{ textTransform: 'none', fontWeight: 700 }}
+          >
+            Register visitor
+          </Button>
+        </Stack>
+        <TableContainer component={Paper} sx={{ backgroundColor: '#111827', overflowX: 'auto', maxHeight: 420 }}>
+          <Table size="small" stickyHeader>
+            <TableHead>
+              <TableRow>
+                <TableCell>Log ID</TableCell>
+                {showTypeColumn && <TableCell>Type</TableCell>}
+                <TableCell>Name</TableCell>
+                <TableCell>Department</TableCell>
+                <TableCell>Host</TableCell>
+                <TableCell>Phone</TableCell>
+                <TableCell>ID No.</TableCell>
+                <TableCell>Vehicle</TableCell>
+                <TableCell>Clock In</TableCell>
+                <TableCell>Clock Out</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.id} hover>
+                  <TableCell>{row.id}</TableCell>
+                  {showTypeColumn && <TableCell>{row.type}</TableCell>}
+                  <TableCell>{row.subject}</TableCell>
+                  <TableCell>{row.destination}</TableCell>
+                  <TableCell>{row.personToSee || '-'}</TableCell>
+                  <TableCell>{row.phoneNumber || '-'}</TableCell>
+                  <TableCell>{row.idNumber || '-'}</TableCell>
+                  <TableCell>{row.vehicleRegistration || '-'}</TableCell>
+                  <TableCell>{formatEatTimestamp(row.timeIn)}</TableCell>
+                  <TableCell>{formatEatTimestamp(row.timeOut)}</TableCell>
+                  <TableCell>
+                    <StatusChip status={row.status} />
+                  </TableCell>
+                  <TableCell align="right">{renderRecordActions(row)}</TableCell>
+                </TableRow>
+              ))}
+              {!rows.length && (
+                <TableRow>
+                  <TableCell colSpan={showTypeColumn ? 12 : 11} align="center">
+                    No records found for this date.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </CardContent>
+    </Card>
+  );
+
+  const renderRecordEditFields = () => {
+    const { row, form } = recordDialog;
+    if (!row) return null;
+
+    const setField = (key) => (event) =>
+      setRecordDialog((prev) => ({
+        ...prev,
+        form: { ...prev.form, [key]: event.target.value }
+      }));
+
+    if (row.type === 'Visitor') {
+      return (
+        <Stack spacing={1.5}>
+          <TextField label="First Name" required value={form.first_name || ''} onChange={setField('first_name')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Last Name" required value={form.surname || ''} onChange={setField('surname')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Phone" value={form.phone_number || ''} onChange={setField('phone_number')} fullWidth sx={dialogFieldSx} />
+          <TextField label="ID / Passport" value={form.id_number || ''} onChange={setField('id_number')} fullWidth sx={dialogFieldSx} />
+          <FormControl fullWidth sx={dialogFieldSx}>
+            <InputLabel>Department</InputLabel>
+            <Select label="Department" value={form.department || ''} onChange={setField('department')}>
+              {departments.map((dept) => (
+                <MenuItem key={dept.id} value={dept.name}>
+                  {dept.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <TextField label="Person to see" value={form.person_to_see || ''} onChange={setField('person_to_see')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Vehicle registration" value={form.vehicle_registration || ''} onChange={setField('vehicle_registration')} fullWidth sx={dialogFieldSx} />
+        </Stack>
+      );
+    }
+
+    if (row.type === 'Vehicle Entry') {
+      return (
+        <Stack spacing={1.5}>
+          <TextField label="Registration" required value={form.vehicle_registration || ''} onChange={setField('vehicle_registration')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Manufacturer" value={form.vehicle_manufacturer || ''} onChange={setField('vehicle_manufacturer')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Color" value={form.vehicle_color || ''} onChange={setField('vehicle_color')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Driver" value={form.driver_name || ''} onChange={setField('driver_name')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Type" value={form.vehicle_type || ''} onChange={setField('vehicle_type')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Purpose" value={form.purpose || ''} onChange={setField('purpose')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Destination" value={form.destination || ''} onChange={setField('destination')} fullWidth sx={dialogFieldSx} />
+        </Stack>
+      );
+    }
+
+    if (row.type === 'Delivery') {
+      return (
+        <Stack spacing={1.5}>
+          <TextField label="Company" required value={form.delivery_company || ''} onChange={setField('delivery_company')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Driver" value={form.driver_name || ''} onChange={setField('driver_name')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Vehicle model" value={form.vehicle_model || ''} onChange={setField('vehicle_model')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Registration" value={form.vehicle_registration || ''} onChange={setField('vehicle_registration')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Notes" multiline minRows={2} value={form.notes || ''} onChange={setField('notes')} fullWidth sx={dialogFieldSx} />
+        </Stack>
+      );
+    }
+
+    if (row.type === 'Yard Exit') {
+      return (
+        <Stack spacing={1.5}>
+          <TextField label="Vehicle registration" required value={form.vehicle_registration || ''} onChange={setField('vehicle_registration')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Taken by" value={form.person_taking_vehicle || ''} onChange={setField('person_taking_vehicle')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Reason" multiline minRows={2} value={form.reason_for_removal || ''} onChange={setField('reason_for_removal')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Approved by" value={form.supervisor_approval || ''} onChange={setField('supervisor_approval')} fullWidth sx={dialogFieldSx} />
+        </Stack>
+      );
+    }
+
+    if (row.type === 'Repossessed Vehicle') {
+      return (
+        <Stack spacing={1.5}>
+          <TextField label="Vehicle registration" required value={form.vehicle_registration || ''} onChange={setField('vehicle_registration')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Recovery company" value={form.recovery_company || ''} onChange={setField('recovery_company')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Driver" value={form.person_delivering_vehicle || ''} onChange={setField('person_delivering_vehicle')} fullWidth sx={dialogFieldSx} />
+          <TextField label="Notes" multiline minRows={2} value={form.notes || ''} onChange={setField('notes')} fullWidth sx={dialogFieldSx} />
+        </Stack>
+      );
+    }
+
+    return <Typography color="text.secondary">Editing is not supported for this record type.</Typography>;
+  };
 
   const drawer = (
     <Box
@@ -1556,6 +1956,11 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
         ))}
       </Grid>
 
+      {renderRecordsTable(registeredVisitors, {
+        title: 'Registered visitors today',
+        showTypeColumn: false
+      })}
+
       {notifications.length > 0 && (
         <Card
           sx={{
@@ -1819,6 +2224,55 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
     </Card>
   );
 
+  const renderRecords = () => (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.2} alignItems={{ md: 'center' }}>
+        <TextField
+          size="small"
+          label="Search name, ID, phone, vehicle"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          sx={{ flex: 1, minWidth: 220 }}
+        />
+        <DatePicker
+          label="Date"
+          value={date}
+          onChange={(value) => setDate(value || dayjs())}
+          slotProps={{ textField: { size: 'small' } }}
+        />
+        <FormControl size="small" sx={{ minWidth: 170 }}>
+          <InputLabel>Type</InputLabel>
+          <Select value={typeFilter} label="Type" onChange={(event) => setTypeFilter(event.target.value)}>
+            <MenuItem value="All Types">All Types</MenuItem>
+            <MenuItem value="Visitor">Visitor</MenuItem>
+            <MenuItem value="Vehicle Entry">Vehicle Entry</MenuItem>
+            <MenuItem value="Delivery">Delivery</MenuItem>
+            <MenuItem value="Yard Exit">Yard Exit</MenuItem>
+            <MenuItem value="Repossessed Vehicle">Repossessed Vehicle</MenuItem>
+          </Select>
+        </FormControl>
+        <FormControl size="small" sx={{ minWidth: 190 }}>
+          <InputLabel>Department</InputLabel>
+          <Select value={departmentFilter} label="Department" onChange={(event) => setDepartmentFilter(event.target.value)}>
+            <MenuItem value="All Departments">All Departments</MenuItem>
+            {departments.map((dept) => (
+              <MenuItem key={dept.id} value={dept.name}>
+                {dept.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Stack>
+      {renderRecordsTable(
+        typeFilter === 'Visitor' ? registeredVisitors : filteredRecords,
+        {
+          title: typeFilter === 'Visitor' ? 'Visitor records' : 'Gate records',
+          showTypeColumn: typeFilter !== 'Visitor'
+        }
+      )}
+    </Box>
+  );
+
   const renderSearch = () => (
     <Card sx={{ backgroundColor: '#020617' }}>
       <CardContent>
@@ -1926,7 +2380,8 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
                     title: 'Guard Daily Operations Report',
                     reportDate: selectedDate,
                     generatedBy: user.fullName,
-                    roleLabel: user.role
+                    roleLabel: user.role,
+                    companyName: 'Security Gate Management'
                   });
                   if (!ok) notify('No data to export.', 'warning');
                 }}
@@ -1947,6 +2402,7 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
 
   let content = null;
   if (activeView === 'Dashboard') content = renderDashboard();
+  if (activeView === 'Records') content = renderRecords();
   if (activeView === 'Visitor Exit') content = renderExitTable(currentVisitors, 'Current Visitors');
   if (activeView === 'Vehicle Exit') content = renderExitTable(currentVehicles, 'Current Vehicles');
   if (formTemplates[activeView]) content = renderForm();
@@ -1962,6 +2418,27 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
             <SettingsIcon />
           </IconButton>
           <Typography sx={{ flexGrow: 1 }} fontWeight={700}>{activeView}</Typography>
+          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mr: 1, display: { xs: 'none', sm: 'flex' } }}>
+            <Chip
+              size="small"
+              label={isRefreshing ? 'Syncing…' : `Live · ${formatSyncLabel(lastSyncedAt)}`}
+              sx={{
+                bgcolor: 'rgba(34,197,94,0.12)',
+                color: '#86efac',
+                fontWeight: 600,
+                '& .MuiChip-label': { px: 1 }
+              }}
+            />
+            <IconButton
+              color="inherit"
+              size="small"
+              aria-label="Refresh now"
+              onClick={() => refreshGuardData()}
+              disabled={isLoading || isRefreshing}
+            >
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </Stack>
           <IconButton color="inherit" onClick={() => setNotificationModalOpen(true)} sx={{ mr: 1.5 }}>
             <Badge badgeContent={notifications.length} color="warning">
               <NotificationsIcon />
@@ -2103,6 +2580,54 @@ function GuardPage({ user, onLogout, departments, notify, canViewFullReports }) 
               <Typography color="text.secondary">No notifications available.</Typography>
             )}
           </Stack>
+      </FormDialog>
+
+      <FormDialog
+        open={recordDialog.open}
+        onClose={() => setRecordDialog({ open: false, row: null, form: {}, saving: false })}
+        title={recordDialog.row ? `Edit ${recordDialog.row.type}` : 'Edit record'}
+        maxWidth="sm"
+        actions={
+          <>
+            <Button
+              onClick={() => setRecordDialog({ open: false, row: null, form: {}, saving: false })}
+              sx={outlinedLightButtonSx}
+              disabled={recordDialog.saving}
+            >
+              Cancel
+            </Button>
+            <Button variant="contained" onClick={saveRecordEdit} disabled={recordDialog.saving}>
+              {recordDialog.saving ? 'Saving…' : 'Save changes'}
+            </Button>
+          </>
+        }
+      >
+        {renderRecordEditFields()}
+      </FormDialog>
+
+      <FormDialog
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete record?"
+        maxWidth="xs"
+        actions={
+          <>
+            <Button onClick={() => setDeleteTarget(null)} sx={outlinedLightButtonSx}>
+              Cancel
+            </Button>
+            <Button variant="contained" color="error" onClick={handleDeleteRecord}>
+              Delete
+            </Button>
+          </>
+        }
+      >
+        <Typography variant="body2" color="text.secondary">
+          Permanently remove{' '}
+          <Box component="span" sx={{ color: 'text.primary', fontWeight: 700 }}>
+            {deleteTarget?.subject || deleteTarget?.id}
+          </Box>
+          ? This cannot be undone.
+        </Typography>
       </FormDialog>
     </Box>
   );
@@ -2279,6 +2804,9 @@ function AdminPage({ user, onLogout, notify }) {
     notificationRules: 'Visitor > 8 hours, Vehicle pending exit',
     securityPolicy: 'Session timeout 30 minutes'
   });
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
+  const [, setSyncTick] = useState(0);
   const reminderTimestampsRef = useRef({});
 
   const selectedDate = date.format('YYYY-MM-DD');
@@ -2299,38 +2827,62 @@ function AdminPage({ user, onLogout, notify }) {
     { key: 'Settings', icon: <SettingsIcon /> }
   ];
 
-  const loadData = async () => {
-    const [analyticsData, movementData] = await Promise.all([
-      getAnalytics(selectedDate),
-      getMovements({ date: selectedDate, search: searchText, type: filters.type, department: filters.department })
-    ]);
+  const loadData = useCallback(
+    async ({ silent = false } = {}) => {
+      if (silent) setIsRefreshing(true);
+      try {
+        const [analyticsData, movementData] = await Promise.all([
+          getAnalytics(selectedDate),
+          getMovements({ date: selectedDate, search: searchText, type: filters.type, department: filters.department })
+        ]);
 
-    setAnalytics(analyticsData);
-    setMovements(movementData);
+        setAnalytics(analyticsData);
+        setMovements(movementData);
+        setLastSyncedAt(Date.now());
 
-    if (user.role === 'admin') {
-      const [guardData, departmentData, staffData] = await Promise.all([getGuards(), getAdminDepartments(), getAdminStaff()]);
-      setGuards(guardData);
-      setDepartments(departmentData);
-      setStaffMembers(staffData);
-    } else if (user.role === 'supervisor') {
-      const guardData = await getGuards();
-      setGuards(guardData);
-      setDepartments([]);
-      setStaffMembers([]);
-    } else {
-      setGuards([]);
-      setDepartments([]);
-      setStaffMembers([]);
-    }
-  };
+        if (!silent) {
+          if (user.role === 'admin') {
+            const [guardData, departmentData, staffData] = await Promise.all([
+              getGuards(),
+              getAdminDepartments(),
+              getAdminStaff()
+            ]);
+            setGuards(guardData);
+            setDepartments(departmentData);
+            setStaffMembers(staffData);
+          } else if (user.role === 'supervisor') {
+            const guardData = await getGuards();
+            setGuards(guardData);
+            setDepartments([]);
+            setStaffMembers([]);
+          } else {
+            setGuards([]);
+            setDepartments([]);
+            setStaffMembers([]);
+          }
+        }
+      } catch (error) {
+        notify(error.message, 'error');
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [selectedDate, searchText, filters.type, filters.department, user.role, notify]
+  );
 
   useEffect(() => {
-    loadData().catch((error) => notify(error.message, 'error'));
-  }, [selectedDate, searchText, filters.type, filters.department]);
+    loadData().catch(() => {});
+  }, [loadData]);
+
+  useAutoRefresh(loadData, [loadData], LIVE_REFRESH_MS);
 
   useEffect(() => {
     const id = setInterval(() => setNowTick(Date.now()), 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setSyncTick(Date.now()), 5000);
     return () => clearInterval(id);
   }, []);
 
@@ -3199,7 +3751,8 @@ function AdminPage({ user, onLogout, notify }) {
                   title: user.role === 'admin' ? 'Admin Operations Report' : 'Supervisor Operations Report',
                   reportDate: selectedDate,
                   generatedBy: user.fullName,
-                  roleLabel: user.role
+                  roleLabel: user.role,
+                  companyName: settingsState.companyName
                 });
                 if (!ok) notify('No data to export.', 'warning');
               }}
@@ -3223,6 +3776,27 @@ function AdminPage({ user, onLogout, notify }) {
         <Toolbar>
           <IconButton color="inherit" onClick={() => setDrawerOpen(true)} sx={{ display: { md: 'none' }, mr: 1 }}><SettingsIcon /></IconButton>
           <Typography sx={{ flexGrow: 1 }} fontWeight={700}>{adminView}</Typography>
+          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mr: 1, display: { xs: 'none', sm: 'flex' } }}>
+            <Chip
+              size="small"
+              label={isRefreshing ? 'Syncing…' : `Live · ${formatSyncLabel(lastSyncedAt)}`}
+              sx={{
+                bgcolor: 'rgba(34,197,94,0.12)',
+                color: '#86efac',
+                fontWeight: 600,
+                '& .MuiChip-label': { px: 1 }
+              }}
+            />
+            <IconButton
+              color="inherit"
+              size="small"
+              aria-label="Refresh now"
+              onClick={() => loadData()}
+              disabled={isRefreshing}
+            >
+              <RefreshIcon fontSize="small" />
+            </IconButton>
+          </Stack>
           <TextField size="small" placeholder="Search records..." value={searchText} onChange={(event) => setSearchText(event.target.value)} sx={{ display: { xs: 'none', md: 'block' }, mr: 1.2, minWidth: 260 }} />
           <IconButton color="inherit" onClick={() => setNotificationModalOpen(true)} sx={{ mr: 0.8 }}>
             <Badge badgeContent={notificationItems.filter((item) => !item.read).length} color="warning">

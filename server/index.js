@@ -597,6 +597,103 @@ app.post('/api/repossessed-vehicles', authRequired, async (req, res) => {
   }
 });
 
+const MOVEMENT_TABLES = {
+  visitors: 'visitors',
+  vehicle_entries: 'vehicle_entries',
+  deliveries: 'deliveries',
+  yard_exits: 'yard_exits',
+  repossessed_vehicles: 'repossessed_vehicles'
+};
+
+const MOVEMENT_PATCH_FIELDS = {
+  visitors: [
+    'first_name',
+    'surname',
+    'phone_number',
+    'id_number',
+    'person_to_see',
+    'department',
+    'vehicle_registration'
+  ],
+  vehicle_entries: [
+    'vehicle_registration',
+    'vehicle_manufacturer',
+    'vehicle_color',
+    'driver_name',
+    'vehicle_type',
+    'purpose',
+    'destination'
+  ],
+  deliveries: ['delivery_company', 'driver_name', 'vehicle_model', 'vehicle_registration', 'notes'],
+  yard_exits: ['vehicle_registration', 'person_taking_vehicle', 'reason_for_removal', 'supervisor_approval'],
+  repossessed_vehicles: [
+    'vehicle_registration',
+    'recovery_company',
+    'person_delivering_vehicle',
+    'notes'
+  ]
+};
+
+app.get('/api/movements/:entity/:id', authRequired, async (req, res) => {
+  const { entity, id } = req.params;
+  const table = MOVEMENT_TABLES[entity];
+  if (!table) {
+    return res.status(400).json({ error: 'Unsupported entity' });
+  }
+
+  try {
+    const result = await pool.query(`SELECT * FROM ${table} WHERE id = $1`, [id]);
+    if (!result.rowCount) {
+      return res.status(404).json({ error: 'Record not found' });
+    }
+    return res.json(result.rows[0]);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.patch('/api/movements/:entity/:id', authRequired, async (req, res) => {
+  const { entity, id } = req.params;
+  const table = MOVEMENT_TABLES[entity];
+  const allowedFields = MOVEMENT_PATCH_FIELDS[entity];
+
+  if (!table || !allowedFields) {
+    return res.status(400).json({ error: 'Unsupported entity for update' });
+  }
+
+  const updates = [];
+  const values = [];
+
+  allowedFields.forEach((field) => {
+    if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+      const value = req.body[field];
+      values.push(value === '' ? null : value);
+      updates.push(`${field} = $${values.length}`);
+    }
+  });
+
+  if (!updates.length) {
+    return res.status(400).json({ error: 'No valid fields to update' });
+  }
+
+  values.push(id);
+
+  try {
+    const result = await pool.query(
+      `UPDATE ${table} SET ${updates.join(', ')} WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+
+    if (!result.rowCount) {
+      return res.status(404).json({ error: 'Record not found' });
+    }
+
+    return res.json(result.rows[0]);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/movements/:entity/:id/exit', authRequired, async (req, res) => {
   const { entity, id } = req.params;
   const allowedTables = {
@@ -628,17 +725,10 @@ app.post('/api/movements/:entity/:id/exit', authRequired, async (req, res) => {
   }
 });
 
-app.delete('/api/admin/movements/:entity/:id', authRequired, adminRequired, async (req, res) => {
+app.delete('/api/movements/:entity/:id', authRequired, async (req, res) => {
   const { entity, id } = req.params;
-  const allowedTables = {
-    visitors: 'visitors',
-    vehicle_entries: 'vehicle_entries',
-    deliveries: 'deliveries',
-    yard_exits: 'yard_exits',
-    repossessed_vehicles: 'repossessed_vehicles'
-  };
+  const table = MOVEMENT_TABLES[entity];
 
-  const table = allowedTables[entity];
   if (!table) {
     return res.status(400).json({ error: 'Unsupported entity for delete action' });
   }

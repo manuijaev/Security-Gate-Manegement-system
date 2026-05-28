@@ -79,8 +79,19 @@ export function markExit(entity, recordId) {
   return request(`/movements/${entity}/${recordId}/exit`, { method: 'POST' });
 }
 
+export function getMovementRecord(entity, recordId) {
+  return request(`/movements/${entity}/${recordId}`);
+}
+
+export function updateMovement(entity, recordId, payload) {
+  return request(`/movements/${entity}/${recordId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  });
+}
+
 export function deleteMovement(entity, recordId) {
-  return request(`/admin/movements/${entity}/${recordId}`, { method: 'DELETE' });
+  return request(`/movements/${entity}/${recordId}`, { method: 'DELETE' });
 }
 
 export function getAnalytics(date) {
