@@ -2809,23 +2809,25 @@ function AdminPage({ user, onLogout, notify }) {
   const [, setSyncTick] = useState(0);
   const reminderTimestampsRef = useRef({});
 
-  const selectedDate = date.format('YYYY-MM-DD');
-  const isSupervisor = user.role === 'supervisor';
+   const selectedDate = date.format('YYYY-MM-DD');
+   const isSupervisor = user.role === 'supervisor';
 
-  const sidebarItems = [
-    { key: 'Dashboard', icon: <DashboardIcon /> },
-    { key: 'Visitors', icon: <PersonAddAlt1Icon /> },
-    { key: 'Vehicles', icon: <DirectionsCarIcon /> },
-    { key: 'Deliveries', icon: <LocalShippingIcon /> },
-    { key: 'Yard Exit', icon: <ExitToAppIcon /> },
-    { key: 'Repossessed Vehicles', icon: <InventoryIcon /> },
-    { key: 'Reports', icon: <SummarizeIcon /> },
-    { key: 'Departments', icon: <WorkIcon /> },
-    { key: 'Staff', icon: <AssignmentIndIcon /> },
-    { key: 'Users', icon: <GroupIcon /> },
-    { key: 'Audit Logs', icon: <FactCheckIcon /> },
-    { key: 'Settings', icon: <SettingsIcon /> }
-  ];
+   const sidebarItems = [
+     { key: 'Dashboard', icon: <DashboardIcon /> },
+     { key: 'Visitors', icon: <PersonAddAlt1Icon /> },
+     { key: 'Vehicles', icon: <DirectionsCarIcon /> },
+     { key: 'Deliveries', icon: <LocalShippingIcon /> },
+     { key: 'Yard Exit', icon: <ExitToAppIcon /> },
+     { key: 'Repossessed Vehicles', icon: <InventoryIcon /> },
+     { key: 'Reports', icon: <SummarizeIcon /> },
+     ...(user.role === 'admin' ? [
+       { key: 'Departments', icon: <WorkIcon /> },
+       { key: 'Staff', icon: <AssignmentIndIcon /> }
+     ] : []),
+     { key: 'Users', icon: <GroupIcon /> },
+     { key: 'Audit Logs', icon: <FactCheckIcon /> },
+     { key: 'Settings', icon: <SettingsIcon /> }
+   ];
 
   const loadData = useCallback(
     async ({ silent = false } = {}) => {
